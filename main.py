@@ -675,9 +675,16 @@ with tab_sim:
             st.download_button(
                 "Download echo sweep as CSV",
                 data=pd.DataFrame({"two_tau_us": two_tau,
-                                   "echo_amplitude": amps})
+                                "echo_amplitude": amps})
                     .to_csv(index=False).encode(),
                 file_name="echo_sweep.csv", mime="text/csv")
+        elif experiment == "FID vs Echo (T₂* comparison)":          # ← new branch
+            st.download_button(
+                "Download FID vs Echo as CSV",
+                data=pd.DataFrame({
+                    "t_us": t, "FID_envelope": fid_env, "T2_decay": t2_only,
+                }).to_csv(index=False).encode(),
+                file_name="fid_vs_echo.csv", mime="text/csv")
         else:
             st.download_button(
                 "Download simulation as CSV",
