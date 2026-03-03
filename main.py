@@ -581,6 +581,10 @@ with tab_sim:
     # ── All other experiments: analytic, instant slider updates ───────────────
     else:
 
+        # Initialise variables that are only set in some branches so that
+        # the shared download / Bloch-sphere code below never hits a NameError.
+        Mx = My = Mz = None
+
         # Single Spin
         if experiment == "Single Spin (Bloch)":
             t, Mx, My, Mz = _analytic_single_spin(omega0, T1, T2, t_max)
@@ -662,27 +666,34 @@ with tab_sim:
                 _fig_fid_vs_echo(t, fid_env, t2_only, sigma, T2, tau),
                 width='stretch')
 
-        # 3D Bloch sphere (not for echo sweep)
-        if show_sphere and experiment != "Echo Sweep":
+        # ── 3D Bloch sphere — only for experiments that produce Mx/My/Mz ──────
+        # FID vs Echo and Echo Sweep do not compute per-component trajectories,
+        # so exclude them here to avoid a NameError.
+        if show_sphere and experiment not in (
+                "Echo Sweep", "FID vs Echo (T₂* comparison)"):
             st.plotly_chart(
                 _fig_bloch_sphere_3d(Mx, My, Mz,
                     f"Bloch Sphere — {experiment}"),
                 width='stretch')
 
-        # CSV export
+        # ── CSV export ────────────────────────────────────────────────────────
         st.markdown("---")
         if experiment == "Echo Sweep":
             st.download_button(
                 "Download echo sweep as CSV",
                 data=pd.DataFrame({"two_tau_us": two_tau,
-                                "echo_amplitude": amps})
+                                   "echo_amplitude": amps})
                     .to_csv(index=False).encode(),
                 file_name="echo_sweep.csv", mime="text/csv")
-        elif experiment == "FID vs Echo (T₂* comparison)":          # ← new branch
+        elif experiment == "FID vs Echo (T₂* comparison)":
+            # Mx/My/Mz are not computed for this experiment; export
+            # the envelope arrays that are actually calculated instead.
             st.download_button(
                 "Download FID vs Echo as CSV",
                 data=pd.DataFrame({
-                    "t_us": t, "FID_envelope": fid_env, "T2_decay": t2_only,
+                    "t_us":        t,
+                    "FID_envelope": fid_env,
+                    "T2_decay":    t2_only,
                 }).to_csv(index=False).encode(),
                 file_name="fid_vs_echo.csv", mime="text/csv")
         else:
