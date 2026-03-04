@@ -1,9 +1,13 @@
 """
 app.py – Spin Coherence Simulator (Interactive Edition)
 ========================================================
-- Analytic fast path for 5/6 experiments: instant slider response
-- Plotly interactive charts: hover, zoom, pan, download PNG
-- ODE solver only for CPMG (button-gated)
+UI only. All physics/simulation logic lives in src/.
+
+src/core.py       — Bloch equations, ODE solver
+src/ensemble.py   — inhomogeneous spin ensemble
+src/sequences.py  — Hahn echo, CPMG
+src/rabi.py       — Rabi oscillation, chevron, analytic helpers
+src/fitting.py    — curve fitting, model registry
 
 Run:  streamlit run app.py
 """
@@ -18,6 +22,10 @@ from plotly.subplots import make_subplots
 import pandas as pd
 
 from src.sequences import cpmg_sequence
+from src.rabi import (
+    run_rabi, analytic_chevron,
+    analytic_rabi_population, pi_pulse_time, max_population_inversion,
+)
 from src.fitting import (
     fit_T2_to_data, fit_multi_to_data,
     generate_synthetic_data, MODEL_REGISTRY,
@@ -31,18 +39,18 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# Theme
 try:
     IS_DARK = (st.get_option("theme.base") == "dark")
 except Exception:
     IS_DARK = False
 
-TMPL    = "plotly_dark"  if IS_DARK else "plotly_white"
-C_BLUE  = "#4a9eda"      if IS_DARK else "#2C7BB6"
-C_RED   = "#ff6b7a"      if IS_DARK else "#E63946"
-C_GREEN = "#7fd77f"      if IS_DARK else "#6A994E"
-C_ORNG  = "#ffb347"      if IS_DARK else "#F4A261"
-C_GREY  = "#aaaaaa"
+TMPL   = "plotly_dark"  if IS_DARK else "plotly_white"
+C_BLUE = "#4a9eda"      if IS_DARK else "#2C7BB6"
+C_RED  = "#ff6b7a"      if IS_DARK else "#E63946"
+C_GREEN= "#7fd77f"      if IS_DARK else "#6A994E"
+C_ORNG = "#ffb347"      if IS_DARK else "#F4A261"
+C_PURP = "#c792ea"      if IS_DARK else "#7B2D8B"
+C_GREY = "#aaaaaa"
 
 st.markdown("""
 <style>
@@ -54,16 +62,16 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 MODEL_LABELS = {
-    "simple_T2":    "L(t) = exp(-t/T₂)",
-    "gaussian_fid": "L(t) = exp(-t/T₂) · exp(-σ²t²/2)",
-    "hahn_echo":    "A(τ) = exp(-2τ/T₂)",
-    "T1_recovery":  "Mz(t) = M0·(1 - exp(-t/T₁))",
-    "stretched_T2": "L(t) = exp(-(t/T₂)^β)",
+    "simple_T2":    "L(t) = exp(−t/T₂)",
+    "gaussian_fid": "L(t) = exp(−t/T₂) · exp(−σ²t²/2)",
+    "hahn_echo":    "A(τ) = exp(−2τ/T₂)",
+    "T1_recovery":  "Mz(t) = M0·(1 − exp(−t/T₁))",
+    "stretched_T2": "L(t) = exp(−(t/T₂)^β)",
 }
 
 
 # ============================================================================
-# Analytic solutions — exact, run in microseconds
+# Analytic solutions — no ODE, run in microseconds
 # ============================================================================
 
 def _analytic_single_spin(omega0, T1, T2, t_max, n=1200):
@@ -71,16 +79,12 @@ def _analytic_single_spin(omega0, T1, T2, t_max, n=1200):
     t  = np.linspace(0, t_max, n)
     Mx =  np.cos(omega0 * t) * np.exp(-t / T2)
     My = -np.sin(omega0 * t) * np.exp(-t / T2)
-    Mz =  1 - np.exp(-t / T1)           # Mz0 = 0 after π/2 tip
+    Mz =  1 - np.exp(-t / T1)
     return t, Mx, My, Mz
 
 
 def _analytic_ensemble_fid(omega0, sigma, T1, T2, t_max, n=1200):
-    """Exact ensemble average for Gaussian frequency spread σ.
-
-    <Mx(t)> =  cos(ω₀t) · exp(-t/T₂) · exp(-σ²t²/2)
-    <My(t)> = -sin(ω₀t) · exp(-t/T₂) · exp(-σ²t²/2)
-    """
+    """Exact ensemble average for Gaussian frequency spread σ."""
     t        = np.linspace(0, t_max, n)
     envelope = np.exp(-t / T2) * np.exp(-0.5 * sigma**2 * t**2)
     Mx       =  np.cos(omega0 * t) * envelope
@@ -90,43 +94,24 @@ def _analytic_ensemble_fid(omega0, sigma, T1, T2, t_max, n=1200):
 
 
 def _analytic_hahn_echo(omega0, T1, T2, tau, n=1200):
-    """Exact single-spin Hahn echo in the lab frame.
-
-    Phase 1 (0 → τ):
-        Mx =  cos(ω₀t) · exp(-t/T₂)
-        My = -sin(ω₀t) · exp(-t/T₂)
-
-    π_x pulse at t=τ flips My → -My, giving My_τ⁺ = +sin(ω₀τ)·exp(-τ/T₂)
-
-    Phase 2 (τ → 2τ):   [derived via rotation matrix from τ⁺ initial conditions]
-        Mx = cos(ω₀(2τ-t)) · exp(-t/T₂)
-        My = sin(ω₀(2τ-t)) · exp(-t/T₂)
-
-    At t=2τ:  Mx = exp(-2τ/T₂),  My = 0  →  echo.
-    """
+    """Exact single-spin Hahn echo in the lab frame."""
     half = n // 2
     t1   = np.linspace(0,   tau,   half,     endpoint=False)
     t2   = np.linspace(tau, 2*tau, half + 1, endpoint=True)
-
-    # Phase 1
-    Mx1 =  np.cos(omega0 * t1) * np.exp(-t1 / T2)
-    My1 = -np.sin(omega0 * t1) * np.exp(-t1 / T2)
-    Mz1 =  1 - np.exp(-t1 / T1)
-
-    # Phase 2
-    Mx2 =  np.cos(omega0 * (2*tau - t2)) * np.exp(-t2 / T2)
-    My2 =  np.sin(omega0 * (2*tau - t2)) * np.exp(-t2 / T2)
-    Mz2 =  1 - np.exp(-t2 / T1)
-
-    t  = np.concatenate([t1, t2])
-    Mx = np.concatenate([Mx1, Mx2])
-    My = np.concatenate([My1, My2])
-    Mz = np.concatenate([Mz1, Mz2])
-    return t, Mx, My, Mz
+    Mx1  =  np.cos(omega0 * t1) * np.exp(-t1 / T2)
+    My1  = -np.sin(omega0 * t1) * np.exp(-t1 / T2)
+    Mz1  =  1 - np.exp(-t1 / T1)
+    Mx2  =  np.cos(omega0 * (2*tau - t2)) * np.exp(-t2 / T2)
+    My2  =  np.sin(omega0 * (2*tau - t2)) * np.exp(-t2 / T2)
+    Mz2  =  1 - np.exp(-t2 / T1)
+    return (np.concatenate([t1, t2]),
+            np.concatenate([Mx1, Mx2]),
+            np.concatenate([My1, My2]),
+            np.concatenate([Mz1, Mz2]))
 
 
 def _analytic_echo_sweep(T2, tau_min, tau_max, n=500):
-    """A(2τ) = exp(-2τ/T₂)."""
+    """A(2τ) = exp(−2τ/T₂)."""
     tau  = np.linspace(tau_min, tau_max, n)
     amps = np.exp(-2 * tau / T2)
     return 2 * tau, amps
@@ -141,7 +126,7 @@ def _analytic_fid_vs_echo(sigma, T2, tau, t_max, n=1200):
 
 
 # ============================================================================
-# Cached ODE solver — only used for CPMG
+# Cached ODE wrappers — @st.cache_data is a Streamlit concern, kept here
 # ============================================================================
 
 @st.cache_data(show_spinner=False)
@@ -152,8 +137,14 @@ def _run_cpmg(gamma, omega0, T1, T2, tau, n_echoes, dt):
         tau=tau, n_echoes=n_echoes, dt=dt)
 
 
+@st.cache_data(show_spinner=False)
+def _run_rabi(omega_rabi, delta, T1, T2, t_max):
+    return run_rabi(omega_rabi=omega_rabi, delta=delta,
+                    T1=T1, T2=T2, t_max=t_max)
+
+
 # ============================================================================
-# Plotly figure builders
+# Plotly figure builders — pure presentation, no physics
 # ============================================================================
 
 def _base_layout(title="", height=420):
@@ -169,30 +160,23 @@ def _base_layout(title="", height=420):
 
 
 def _fig_bloch_components(t, Mx, My, Mz, T2, title):
-    fig = make_subplots(
-        rows=1, cols=3, shared_yaxes=False,
-        subplot_titles=("Mx(t)", "My(t)", "Mz(t)"))
+    fig = make_subplots(rows=1, cols=3, shared_yaxes=False,
+                        subplot_titles=("Mx(t)", "My(t)", "Mz(t)"))
     env = np.exp(-t / T2)
-
     for col, data, color, name in [
         (1, Mx, C_BLUE,  "Mx"),
         (2, My, C_RED,   "My"),
         (3, Mz, C_GREEN, "Mz"),
     ]:
-        fig.add_trace(
-            go.Scatter(x=t, y=data, name=name,
-                       line=dict(color=color, width=2)),
-            row=1, col=col)
-
-    # T₂ envelope on Mx and My panels
+        fig.add_trace(go.Scatter(x=t, y=data, name=name,
+                                 line=dict(color=color, width=2)),
+                      row=1, col=col)
     for col in (1, 2):
         for sign in (1, -1):
-            fig.add_trace(
-                go.Scatter(x=t, y=sign*env, showlegend=False,
-                           line=dict(color=C_GREY, dash="dash", width=1),
-                           hoverinfo="skip"),
-                row=1, col=col)
-
+            fig.add_trace(go.Scatter(x=t, y=sign*env, showlegend=False,
+                                     line=dict(color=C_GREY, dash="dash", width=1),
+                                     hoverinfo="skip"),
+                          row=1, col=col)
     fig.update_xaxes(title_text="Time (µs)")
     fig.update_yaxes(title_text="Magnetisation", row=1, col=1)
     fig.update_layout(title=title, template=TMPL, height=360,
@@ -205,12 +189,11 @@ def _fig_echo_detail(t, Mx, My, tau, T2):
     M_perp   = np.sqrt(Mx**2 + My**2)
     echo_amp = float(np.interp(2*tau, t, M_perp))
     expected = float(np.exp(-2*tau / T2))
-
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=t, y=M_perp, name="|M⊥|(t)",
                              line=dict(color=C_BLUE, width=2.5)))
     fig.add_trace(go.Scatter(x=t, y=np.exp(-t/T2),
-                             name=f"exp(-t/T₂)  T₂={T2} µs",
+                             name=f"exp(−t/T₂)  T₂={T2} µs",
                              line=dict(color=C_GREY, dash="dash", width=1.3)))
     fig.add_vline(x=tau,   line_dash="dot",  line_color=C_RED,
                   annotation_text="π pulse", annotation_position="top right")
@@ -221,8 +204,7 @@ def _fig_echo_detail(t, Mx, My, tau, T2):
         x=[2*tau], y=[echo_amp], mode="markers",
         marker=dict(color=C_GREEN, size=12, symbol="star"),
         name=f"Echo = {echo_amp:.4f}  (expected {expected:.4f})"))
-    fig.update_layout(**_base_layout(
-        f"Hahn Echo  τ={tau} µs  T₂={T2} µs"))
+    fig.update_layout(**_base_layout(f"Hahn Echo  τ={tau} µs  T₂={T2} µs"))
     fig.update_xaxes(title_text="Time (µs)")
     fig.update_yaxes(title_text="|M⊥|", range=[-0.05, 1.1])
     return fig
@@ -232,23 +214,18 @@ def _fig_echo_sweep(two_tau, amps, T2):
     log_A  = np.log(np.clip(amps, 1e-10, None))
     coeffs = np.polyfit(two_tau, log_A, 1)
     T2_fit = -1.0 / coeffs[0]
-
-    # Smooth theory curves
     tt = np.linspace(two_tau[0], two_tau[-1], 600)
     fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=tt, y=np.exp(-tt / T2),
-        name=f"exp(-2τ/T₂)  T₂={T2} µs",
-        line=dict(color=C_BLUE, dash="dash", width=1.8)))
-    fig.add_trace(go.Scatter(
-        x=tt, y=np.exp(coeffs[0]*tt + coeffs[1]),
-        name=f"Fitted  T₂ = {T2_fit:.2f} µs",
-        line=dict(color=C_GREEN, dash="dot", width=1.8)))
-    fig.add_trace(go.Scatter(
-        x=two_tau, y=amps, name="Echo amplitudes",
-        mode="markers+lines",
-        marker=dict(color=C_RED, size=7),
-        line=dict(color=C_RED, width=1)))
+    fig.add_trace(go.Scatter(x=tt, y=np.exp(-tt / T2),
+                             name=f"exp(−2τ/T₂)  T₂={T2} µs",
+                             line=dict(color=C_BLUE, dash="dash", width=1.8)))
+    fig.add_trace(go.Scatter(x=tt, y=np.exp(coeffs[0]*tt + coeffs[1]),
+                             name=f"Fitted  T₂ = {T2_fit:.2f} µs",
+                             line=dict(color=C_GREEN, dash="dot", width=1.8)))
+    fig.add_trace(go.Scatter(x=two_tau, y=amps, name="Echo amplitudes",
+                             mode="markers+lines",
+                             marker=dict(color=C_RED, size=7),
+                             line=dict(color=C_RED, width=1)))
     fig.add_hline(y=1/np.e, line_dash="dot", line_color=C_GREY,
                   annotation_text="1/e", annotation_position="right")
     fig.update_layout(**_base_layout("Echo Amplitude vs 2τ"))
@@ -260,24 +237,19 @@ def _fig_echo_sweep(two_tau, amps, T2):
 def _fig_fid_vs_echo(t, fid_env, t2_only, sigma, T2, tau):
     echo_amp = float(np.exp(-2*tau / T2))
     fid_at   = float(np.exp(-2*tau/T2) * np.exp(-0.5*sigma**2*(2*tau)**2))
-
     fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=t, y=fid_env,
-        name=f"FID envelope  σ={sigma:.2f} rad/µs",
-        line=dict(color=C_RED, width=2.5)))
-    fig.add_trace(go.Scatter(
-        x=t, y=t2_only,
-        name=f"exp(-t/T₂)  T₂={T2} µs",
-        line=dict(color=C_BLUE, dash="dash", width=1.8)))
-    fig.add_trace(go.Scatter(
-        x=[2*tau], y=[echo_amp], mode="markers",
-        marker=dict(color=C_GREEN, size=14, symbol="star"),
-        name=f"Echo amp at 2τ = {echo_amp:.4f}"))
-    fig.add_trace(go.Scatter(
-        x=[2*tau], y=[fid_at], mode="markers",
-        marker=dict(color=C_RED, size=12, symbol="x"),
-        name=f"FID at 2τ = {fid_at:.4f}"))
+    fig.add_trace(go.Scatter(x=t, y=fid_env,
+                             name=f"FID envelope  σ={sigma:.2f} rad/µs",
+                             line=dict(color=C_RED, width=2.5)))
+    fig.add_trace(go.Scatter(x=t, y=t2_only,
+                             name=f"exp(−t/T₂)  T₂={T2} µs",
+                             line=dict(color=C_BLUE, dash="dash", width=1.8)))
+    fig.add_trace(go.Scatter(x=[2*tau], y=[echo_amp], mode="markers",
+                             marker=dict(color=C_GREEN, size=14, symbol="star"),
+                             name=f"Echo amp at 2τ = {echo_amp:.4f}"))
+    fig.add_trace(go.Scatter(x=[2*tau], y=[fid_at], mode="markers",
+                             marker=dict(color=C_RED, size=12, symbol="x"),
+                             name=f"FID at 2τ = {fid_at:.4f}"))
     fig.add_vline(x=2*tau, line_dash="dot", line_color=C_GREY,
                   annotation_text=f"2τ = {2*tau} µs",
                   annotation_position="top right")
@@ -294,24 +266,19 @@ def _fig_fid_ensemble(t, Mx, My, sigma, T2):
     M_perp = np.sqrt(Mx**2 + My**2)
     t_s    = np.linspace(0, t[-1], 600)
     env    = np.exp(-t_s/T2) * np.exp(-0.5*sigma**2*t_s**2)
-
-    fig = make_subplots(
-        rows=1, cols=2,
-        subplot_titles=("Transverse components", "FID envelope"))
+    fig    = make_subplots(rows=1, cols=2,
+                           subplot_titles=("Transverse components", "FID envelope"))
     fig.add_trace(go.Scatter(x=t, y=Mx, name="⟨Mx⟩",
-                             line=dict(color=C_BLUE, width=1.8)),
-                  row=1, col=1)
+                             line=dict(color=C_BLUE, width=1.8)), row=1, col=1)
     fig.add_trace(go.Scatter(x=t, y=My, name="⟨My⟩",
                              line=dict(color=C_RED, width=1.8), opacity=0.85),
                   row=1, col=1)
     fig.add_trace(go.Scatter(x=t, y=M_perp, name="|⟨M⊥⟩|",
-                             line=dict(color=C_BLUE, width=2.5)),
-                  row=1, col=2)
+                             line=dict(color=C_BLUE, width=2.5)), row=1, col=2)
     fig.add_trace(go.Scatter(x=t_s, y=env, name="Analytic envelope",
                              line=dict(color=C_RED, dash="dash", width=1.5)),
                   row=1, col=2)
-    fig.add_trace(go.Scatter(x=t_s, y=np.exp(-t_s/T2),
-                             name="exp(-t/T₂)",
+    fig.add_trace(go.Scatter(x=t_s, y=np.exp(-t_s/T2), name="exp(−t/T₂)",
                              line=dict(color=C_GREY, dash="dot", width=1.2)),
                   row=1, col=2)
     fig.update_xaxes(title_text="Time (µs)")
@@ -325,41 +292,29 @@ def _fig_fid_ensemble(t, Mx, My, sigma, T2):
 def _fig_cpmg(t, Mx, My, Mz, echo_times, tau, T2, n_echoes):
     M_perp    = np.sqrt(Mx**2 + My**2)
     echo_amps = [float(np.interp(et, t, M_perp)) for et in echo_times]
-
-    fig = make_subplots(
-        rows=2, cols=1, row_heights=[0.65, 0.35],
-        shared_xaxes=True,
-        subplot_titles=("Echo train", "Echo amplitude decay"))
-
+    fig = make_subplots(rows=2, cols=1, row_heights=[0.65, 0.35],
+                        shared_xaxes=True,
+                        subplot_titles=("Echo train", "Echo amplitude decay"))
     fig.add_trace(go.Scatter(x=t, y=M_perp, name="|M⊥|(t)",
-                             line=dict(color=C_BLUE, width=1.8)),
-                  row=1, col=1)
+                             line=dict(color=C_BLUE, width=1.8)), row=1, col=1)
     fig.add_trace(go.Scatter(x=t, y=Mz, name="Mz(t)",
                              line=dict(color=C_GREEN, width=1.2, dash="dash"),
                              opacity=0.7), row=1, col=1)
-    fig.add_trace(go.Scatter(x=t, y=np.exp(-t/T2),
-                             name="exp(-t/T₂)",
+    fig.add_trace(go.Scatter(x=t, y=np.exp(-t/T2), name="exp(−t/T₂)",
                              line=dict(color=C_GREY, dash="dot", width=1)),
                   row=1, col=1)
-
-    # Echo peak markers in waveform panel
-    fig.add_trace(go.Scatter(
-        x=echo_times, y=echo_amps, mode="markers",
-        marker=dict(color=C_ORNG, size=9, symbol="diamond"),
-        name="Echo peaks", showlegend=True), row=1, col=1)
-
-    # Echo amplitude decay panel
-    fig.add_trace(go.Scatter(
-        x=echo_times, y=echo_amps, name="Measured",
-        mode="markers+lines",
-        marker=dict(color=C_BLUE, size=9),
-        line=dict(color=C_BLUE, width=1.5)), row=2, col=1)
-    fig.add_trace(go.Scatter(
-        x=echo_times, y=np.exp(-np.array(echo_times)/T2),
-        name="exp(-t/T₂)",
-        line=dict(color=C_RED, dash="dash", width=1.8)),
-        row=2, col=1)
-
+    fig.add_trace(go.Scatter(x=echo_times, y=echo_amps, mode="markers",
+                             marker=dict(color=C_ORNG, size=9, symbol="diamond"),
+                             name="Echo peaks", showlegend=True), row=1, col=1)
+    fig.add_trace(go.Scatter(x=echo_times, y=echo_amps, name="Measured",
+                             mode="markers+lines",
+                             marker=dict(color=C_BLUE, size=9),
+                             line=dict(color=C_BLUE, width=1.5)), row=2, col=1)
+    fig.add_trace(go.Scatter(x=echo_times,
+                             y=np.exp(-np.array(echo_times)/T2),
+                             name="exp(−t/T₂)",
+                             line=dict(color=C_RED, dash="dash", width=1.8)),
+                  row=2, col=1)
     fig.update_xaxes(title_text="Time (µs)", row=2, col=1)
     fig.update_yaxes(title_text="Magnetisation", row=1, col=1)
     fig.update_yaxes(title_text="Amplitude",     row=2, col=1)
@@ -371,18 +326,14 @@ def _fig_cpmg(t, Mx, My, Mz, echo_times, tau, T2, n_echoes):
 
 
 def _fig_bloch_sphere_3d(Mx, My, Mz, title="Bloch Sphere"):
-    theta = np.linspace(0, 2*np.pi, 80)
+    theta  = np.linspace(0, 2*np.pi, 80)
     traces = []
-
-    # Latitude circles
     for zval in np.linspace(-0.8, 0.8, 5):
         r = np.sqrt(max(0, 1 - zval**2))
         traces.append(go.Scatter3d(
             x=r*np.cos(theta), y=r*np.sin(theta), z=np.full_like(theta, zval),
             mode='lines', line=dict(color='rgba(160,160,160,0.2)', width=1),
             showlegend=False, hoverinfo='skip'))
-
-    # Longitude lines
     for angle in np.linspace(0, np.pi, 7):
         traces.append(go.Scatter3d(
             x=np.cos(angle)*np.cos(theta),
@@ -390,8 +341,6 @@ def _fig_bloch_sphere_3d(Mx, My, Mz, title="Bloch Sphere"):
             z=np.sin(theta),
             mode='lines', line=dict(color='rgba(160,160,160,0.2)', width=1),
             showlegend=False, hoverinfo='skip'))
-
-    # Axis arrows
     for xs, ys, zs, lbl in [
         ([0, 1.25], [0, 0],    [0, 0],    "x"),
         ([0, 0],    [0, 1.25], [0, 0],    "y"),
@@ -402,26 +351,18 @@ def _fig_bloch_sphere_3d(Mx, My, Mz, title="Bloch Sphere"):
             line=dict(color='rgba(200,200,200,0.6)', width=2),
             text=['', lbl], textposition='top center',
             showlegend=False, hoverinfo='skip'))
-
-    # Trajectory colored by time
     n = len(Mx)
     traces.append(go.Scatter3d(
-        x=Mx, y=My, z=Mz,
-        mode='lines',
-        line=dict(color=np.linspace(0, 1, n),
-                  colorscale='Plasma', width=5,
-                  colorbar=dict(title="t / t_max",
-                                thickness=12, len=0.5, x=1.02)),
+        x=Mx, y=My, z=Mz, mode='lines',
+        line=dict(color=np.linspace(0, 1, n), colorscale='Plasma', width=5,
+                  colorbar=dict(title="t / t_max", thickness=12, len=0.5, x=1.02)),
         name='Trajectory'))
-
-    # Start / end
     traces.append(go.Scatter3d(
         x=[Mx[0]], y=[My[0]], z=[Mz[0]], mode='markers',
         marker=dict(color='lime', size=7), name='Start'))
     traces.append(go.Scatter3d(
         x=[Mx[-1]], y=[My[-1]], z=[Mz[-1]], mode='markers',
         marker=dict(color=C_RED, size=7), name='End'))
-
     fig = go.Figure(data=traces)
     fig.update_layout(
         title=title, template=TMPL, height=520,
@@ -430,8 +371,7 @@ def _fig_bloch_sphere_3d(Mx, My, Mz, title="Bloch Sphere"):
             xaxis=dict(title='Mx', range=[-1.4, 1.4]),
             yaxis=dict(title='My', range=[-1.4, 1.4]),
             zaxis=dict(title='Mz', range=[-1.4, 1.4]),
-            aspectmode='cube',
-        ))
+            aspectmode='cube'))
     return fig
 
 
@@ -444,15 +384,12 @@ def _fig_fit(t_data, L_data, L_fit, params, errors, model_label):
                              marker=dict(color=C_BLUE, size=6, opacity=0.75)),
                   row=1, col=1)
     fig.add_trace(go.Scatter(x=t_data, y=L_fit, name='Best fit',
-                             line=dict(color=C_RED, width=2.2)),
-                  row=1, col=1)
+                             line=dict(color=C_RED, width=2.2)), row=1, col=1)
     fig.add_trace(go.Bar(x=t_data, y=resid, name='Residual',
                          marker_color=C_GREEN, opacity=0.7), row=2, col=1)
     fig.add_hline(y=0, line_color=C_GREY, line_width=0.8, row=2, col=1)
-
     param_str = "    ".join(
-        f"{k} = {v:.4f} ± {errors.get(k,0):.4f}"
-        for k, v in params.items())
+        f"{k} = {v:.4f} ± {errors.get(k,0):.4f}" for k, v in params.items())
     fig.update_layout(
         title=f"Model: {model_label}<br><sup>{param_str}</sup>",
         template=TMPL, height=480, hovermode="x unified",
@@ -460,6 +397,114 @@ def _fig_fit(t_data, L_data, L_fit, params, errors, model_label):
     fig.update_xaxes(title_text="Time (µs)", row=2, col=1)
     fig.update_yaxes(title_text="Coherence", row=1, col=1)
     fig.update_yaxes(title_text="Residual",  row=2, col=1)
+    return fig
+
+
+# ── Rabi figure builders ──────────────────────────────────────────────────────
+
+def _fig_rabi_population(t, Mz, omega_rabi, delta, T1, T2):
+    """P↑(t) with no-relaxation analytic overlay and π/2π pulse markers."""
+    omega_eff  = np.sqrt(omega_rabi**2 + delta**2)
+    t_pi       = np.pi / omega_eff
+    P_ode      = (1.0 - Mz) / 2.0
+    P_analytic = analytic_rabi_population(t, omega_rabi, delta)
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=t, y=P_ode,
+                             name="P↑(t)  [with T₁, T₂]",
+                             line=dict(color=C_BLUE, width=2.5)))
+    fig.add_trace(go.Scatter(x=t, y=P_analytic,
+                             name="P↑(t)  [no relaxation]",
+                             line=dict(color=C_GREY, dash="dash", width=1.5)))
+    n_marks = min(int(t[-1] / t_pi), 8)
+    for k in range(1, n_marks + 1):
+        tp    = k * t_pi
+        is_pi = (k % 2 == 1)
+        fig.add_vline(x=tp, line_dash="dot",
+                      line_color=C_RED if is_pi else C_GREEN,
+                      annotation_text="π" if is_pi else "2π",
+                      annotation_position="top right")
+    fig.add_hline(y=0.5, line_dash="dot", line_color=C_GREY,
+                  annotation_text="P↑ = 0.5", annotation_position="right")
+    fig.update_layout(**_base_layout(
+        f"Rabi Oscillations  Ω={omega_rabi:.2f}  Δ={delta:.2f}"
+        f"  Ω_eff={omega_eff:.2f} rad/µs"))
+    fig.update_xaxes(title_text="Time (µs)")
+    fig.update_yaxes(title_text="P↑  (excited state population)",
+                     range=[-0.05, 1.1])
+    return fig
+
+
+def _fig_rabi_components(t, Mx, My, Mz):
+    """Rotating-frame Bloch vector components."""
+    fig = make_subplots(rows=1, cols=3, shared_yaxes=False,
+                        subplot_titles=("Mx  (rot. frame)",
+                                        "My  (rot. frame)",
+                                        "Mz  (population)"))
+    for col, data, color, name in [
+        (1, Mx, C_BLUE,  "Mx"),
+        (2, My, C_PURP,  "My"),
+        (3, Mz, C_GREEN, "Mz"),
+    ]:
+        fig.add_trace(go.Scatter(x=t, y=data, name=name,
+                                 line=dict(color=color, width=2)),
+                      row=1, col=col)
+    fig.add_hline(y= 1, line_dash="dot", line_color=C_GREY,
+                  annotation_text="|↑⟩", annotation_position="right",
+                  row=1, col=3)
+    fig.add_hline(y=-1, line_dash="dot", line_color=C_GREY,
+                  annotation_text="|↓⟩", annotation_position="right",
+                  row=1, col=3)
+    fig.update_xaxes(title_text="Time (µs)")
+    fig.update_yaxes(title_text="Component", row=1, col=1)
+    fig.update_layout(title="Bloch Vector — Rotating Frame",
+                      template=TMPL, height=340, hovermode="x unified",
+                      margin=dict(l=60, r=20, t=65, b=50))
+    return fig
+
+
+def _fig_rabi_chevron(omega_rabi, delta_max, t_max, current_delta=None):
+    """2-D heatmap of P↑(t, Δ) — the chevron / bowtie pattern."""
+    t, deltas, P = analytic_chevron(omega_rabi, delta_max, t_max)
+    fig = go.Figure(go.Heatmap(
+        x=t, y=deltas, z=P,
+        colorscale="Viridis",
+        colorbar=dict(title="P↑", thickness=14),
+        zmin=0, zmax=1))
+    fig.add_hline(y=0, line_color="white", line_dash="dash", line_width=1.2,
+                  annotation_text="Δ = 0  (resonance)",
+                  annotation_font_color="white",
+                  annotation_position="top right")
+    if current_delta is not None:
+        fig.add_hline(y=current_delta, line_color=C_ORNG, line_dash="dot",
+                      line_width=1.5,
+                      annotation_text=f"Δ = {current_delta:.2f}",
+                      annotation_font_color=C_ORNG,
+                      annotation_position="bottom right")
+    fig.update_layout(**_base_layout(
+        f"Chevron  P↑(t, Δ)   Ω = {omega_rabi:.2f} rad/µs", height=420))
+    fig.update_xaxes(title_text="Time (µs)")
+    fig.update_yaxes(title_text="Detuning Δ (rad/µs)")
+    return fig
+
+
+def _fig_rabi_resonance_scan(omega_rabi, delta_max, t_pi):
+    """P↑ vs Δ at t = t_π — spectral selectivity of the pulse."""
+    deltas    = np.linspace(-delta_max, delta_max, 500)
+    omega_eff = np.sqrt(omega_rabi**2 + deltas**2)
+    P         = (omega_rabi / omega_eff)**2 * np.sin(omega_eff * t_pi / 2)**2
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=deltas, y=P,
+                             name=f"P↑ at t_π = {t_pi:.3f} µs",
+                             line=dict(color=C_PURP, width=2.5)))
+    fig.add_vline(x=0, line_dash="dot", line_color=C_GREY,
+                  annotation_text="Resonance", annotation_position="top right")
+    fig.add_hline(y=1.0, line_dash="dot", line_color=C_GREY,
+                  annotation_text="P↑ = 1", annotation_position="right")
+    fig.update_layout(**_base_layout(
+        f"Resonance Scan  P↑ vs Δ  (at t = t_π)   Ω = {omega_rabi:.2f}"))
+    fig.update_xaxes(title_text="Detuning Δ (rad/µs)")
+    fig.update_yaxes(title_text="P↑", range=[-0.05, 1.1])
     return fig
 
 
@@ -478,7 +523,8 @@ with st.sidebar:
          "Hahn Echo",
          "CPMG Train",
          "Echo Sweep",
-         "FID vs Echo (T₂* comparison)"],
+         "FID vs Echo (T₂* comparison)",
+         "Rabi Oscillation"],
     )
 
     st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
@@ -490,8 +536,7 @@ with st.sidebar:
     T2     = st.slider("T₂ (µs)", 0.5, 50.0, 10.0, 0.5)
     T1     = st.slider("T₁ (µs)", T2, 200.0, float(max(T2*3, T2+1.0)), 1.0)
 
-    needs_sigma = experiment in [
-        "Ensemble FID", "FID vs Echo (T₂* comparison)"]
+    needs_sigma = experiment in ["Ensemble FID", "FID vs Echo (T₂* comparison)"]
     sigma = (st.slider("Frequency spread σ (rad/µs)", 0.0, 2.0, 0.3, 0.05)
              if needs_sigma else 0.0)
 
@@ -510,21 +555,43 @@ with st.sidebar:
     else:
         tau_min, tau_max, n_tau = 0.5, 20.0, 60
 
+    # ── Rabi-specific parameters ──────────────────────────────────────────────
+    needs_rabi = (experiment == "Rabi Oscillation")
+    if needs_rabi:
+        st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+        st.markdown("**Drive parameters**")
+        omega_rabi     = st.slider("Rabi frequency Ω (rad/µs)", 0.05, 5.0, 1.0, 0.05)
+        delta          = st.slider("Detuning Δ (rad/µs)", -5.0, 5.0, 0.0, 0.05)
+        delta_max_chev = st.slider("Chevron Δ range (rad/µs)", 1.0, 10.0, 3.0, 0.5)
+        show_chevron   = st.checkbox("Show chevron plot", value=True)
+        show_res_scan  = st.checkbox("Show resonance scan", value=True)
+    else:
+        omega_rabi, delta = 1.0, 0.0
+        delta_max_chev, show_chevron, show_res_scan = 3.0, False, False
+
     st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
     st.markdown("**Display**")
 
     t_max_def = float(max(4*T2, 4*tau if needs_tau else 4*T2))
-    t_max     = st.slider("t_max (µs)", 5.0, 200.0, t_max_def, 5.0)
+    if needs_rabi:
+        oe_est    = np.sqrt(omega_rabi**2 + delta**2)
+        t_max_def = float(max(t_max_def, 6 * np.pi / max(oe_est, 0.01)))
+    t_max       = st.slider("t_max (µs)", 5.0, 200.0, min(t_max_def, 200.0), 5.0)
     show_sphere = st.checkbox("Show 3D Bloch sphere", value=False)
 
     if experiment == "CPMG Train":
         dt = st.select_slider("Time step dt (µs)",
                               [0.005, 0.01, 0.02, 0.05, 0.1], value=0.05)
         st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
-        run_cpmg = st.button("Run CPMG", type="primary",
-                             width='stretch')
+        run_cpmg = st.button("Run CPMG", type="primary", width='stretch')
+        run_rabi_btn = False
+    elif experiment == "Rabi Oscillation":
+        dt = 0.05
+        run_cpmg = False
+        st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+        run_rabi_btn = st.button("Run Rabi", type="primary", width='stretch')
     else:
-        dt, run_cpmg = 0.05, False
+        dt, run_cpmg, run_rabi_btn = 0.05, False, False
 
 
 # ============================================================================
@@ -534,7 +601,8 @@ with st.sidebar:
 st.markdown("# Spin Coherence Simulator")
 st.caption(
     "Bloch equations  ·  T₁/T₂ relaxation  ·  Pulse sequences  ·  "
-    "Inhomogeneous ensemble  ·  Fitting  ·  Interactive Plotly charts")
+    "Inhomogeneous ensemble  ·  Rabi oscillations  ·  Fitting  ·  "
+    "Interactive Plotly charts")
 st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
 
 tab_sim, tab_fit = st.tabs(["Simulation", "Fitting"])
@@ -556,17 +624,15 @@ with tab_sim:
         if "cpmg" not in st.session_state:
             st.info("Configure parameters and press **Run CPMG**.")
         else:
-            r = st.session_state["cpmg"]
-            Mp = np.sqrt(r["Mx"]**2 + r["My"]**2)
+            r      = st.session_state["cpmg"]
+            Mp     = np.sqrt(r["Mx"]**2 + r["My"]**2)
             e_amps = [float(np.interp(et, r["t"], Mp)) for et in r["echo_times"]]
             c1, c2, c3, c4 = st.columns(4)
             c1.metric("T₂ (µs)", f"{r['T2']:.1f}")
             c2.metric("τ (µs)",  f"{r['tau']:.1f}")
-            c3.metric("First echo",
-                      f"{e_amps[0]:.4f}",
+            c3.metric("First echo", f"{e_amps[0]:.4f}",
                       delta=f"exp = {np.exp(-2*r['tau']/r['T2']):.4f}")
-            c4.metric("Last echo",
-                      f"{e_amps[-1]:.4f}",
+            c4.metric("Last echo",  f"{e_amps[-1]:.4f}",
                       delta=f"exp = {np.exp(-r['echo_times'][-1]/r['T2']):.4f}")
             st.plotly_chart(
                 _fig_cpmg(r["t"], r["Mx"], r["My"], r["Mz"],
@@ -578,11 +644,75 @@ with tab_sim:
                                          "Bloch Sphere — CPMG"),
                     width='stretch')
 
-    # ── All other experiments: analytic, instant slider updates ───────────────
-    else:
+    # ── Rabi (ODE, button-gated) ──────────────────────────────────────────────
+    elif experiment == "Rabi Oscillation":
 
-        # Initialise variables that are only set in some branches so that
-        # the shared download / Bloch-sphere code below never hits a NameError.
+        # Chevron is analytic — always live, no button needed
+        if show_chevron:
+            st.plotly_chart(
+                _fig_rabi_chevron(omega_rabi, delta_max_chev, t_max,
+                                  current_delta=delta),
+                width='stretch')
+
+        if run_rabi_btn:
+            with st.spinner("Running Rabi simulation..."):
+                t_rb, Mx_rb, My_rb, Mz_rb = _run_rabi(
+                    omega_rabi, delta, T1, T2, t_max)
+                st.session_state["rabi"] = dict(
+                    t=t_rb, Mx=Mx_rb, My=My_rb, Mz=Mz_rb,
+                    omega_rabi=omega_rabi, delta=delta, T1=T1, T2=T2)
+
+        if "rabi" not in st.session_state:
+            st.info("Configure parameters and press **Run Rabi**.")
+        else:
+            r       = st.session_state["rabi"]
+            t_pi    = pi_pulse_time(r["omega_rabi"], r["delta"])
+            max_Pup = max_population_inversion(r["omega_rabi"], r["delta"])
+            oe      = np.sqrt(r["omega_rabi"]**2 + r["delta"]**2)
+            P_exc   = (1.0 - r["Mz"]) / 2.0
+
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Ω (rad/µs)",     f"{r['omega_rabi']:.3f}")
+            c2.metric("Δ (rad/µs)",     f"{r['delta']:.3f}")
+            c3.metric("Ω_eff (rad/µs)", f"{oe:.3f}")
+            c4.metric("t_π (µs)",       f"{t_pi:.3f}",
+                      delta=f"Max P↑ = {max_Pup:.3f}")
+
+            st.plotly_chart(
+                _fig_rabi_population(r["t"], r["Mz"],
+                                     r["omega_rabi"], r["delta"],
+                                     r["T1"], r["T2"]),
+                width='stretch')
+            st.plotly_chart(
+                _fig_rabi_components(r["t"], r["Mx"], r["My"], r["Mz"]),
+                width='stretch')
+
+            if show_res_scan:
+                st.plotly_chart(
+                    _fig_rabi_resonance_scan(
+                        r["omega_rabi"], delta_max_chev, t_pi),
+                    width='stretch')
+            if show_sphere:
+                st.plotly_chart(
+                    _fig_bloch_sphere_3d(r["Mx"], r["My"], r["Mz"],
+                                         "Bloch Sphere — Rabi (Rotating Frame)"),
+                    width='stretch')
+
+            st.markdown("---")
+            st.download_button(
+                "Download Rabi simulation as CSV",
+                data=pd.DataFrame({
+                    "t_us":      r["t"],
+                    "Mx":        r["Mx"],
+                    "My":        r["My"],
+                    "Mz":        r["Mz"],
+                    "P_excited": P_exc,
+                }).to_csv(index=False).encode(),
+                file_name="rabi_sim.csv", mime="text/csv")
+
+    # ── All analytic experiments ──────────────────────────────────────────────
+    else:
+        # Safe init — not all branches below assign these
         Mx = My = Mz = None
 
         # Single Spin
@@ -608,10 +738,10 @@ with tab_sim:
             T2star = 1.0 / (1.0/T2 + sigma) if sigma > 0 else T2
             idx    = np.argmin(np.abs(t - T2))
             c1, c2, c3, c4 = st.columns(4)
-            c1.metric("T₂ (µs)",            f"{T2:.1f}")
-            c2.metric("T₂* estimate (µs)",  f"{T2star:.2f}")
-            c3.metric("σ (rad/µs)",          f"{sigma:.2f}")
-            c4.metric("|⟨M⊥⟩| at T₂",      f"{M_perp[idx]:.4f}")
+            c1.metric("T₂ (µs)",           f"{T2:.1f}")
+            c2.metric("T₂* estimate (µs)", f"{T2star:.2f}")
+            c3.metric("σ (rad/µs)",         f"{sigma:.2f}")
+            c4.metric("|⟨M⊥⟩| at T₂",     f"{M_perp[idx]:.4f}")
             st.plotly_chart(
                 _fig_fid_ensemble(t, Mx, My, sigma, T2),
                 width='stretch')
@@ -623,12 +753,11 @@ with tab_sim:
             echo_amp = float(np.interp(2*tau, t, M_perp))
             expected = float(np.exp(-2*tau / T2))
             c1, c2, c3, c4 = st.columns(4)
-            c1.metric("T₂ (µs)",             f"{T2:.1f}")
-            c2.metric("τ (µs)",              f"{tau:.1f}")
-            c3.metric("Echo amp at 2τ",      f"{echo_amp:.4f}",
+            c1.metric("T₂ (µs)",        f"{T2:.1f}")
+            c2.metric("τ (µs)",         f"{tau:.1f}")
+            c3.metric("Echo amp at 2τ", f"{echo_amp:.4f}",
                       delta=f"expected {expected:.4f}")
-            c4.metric("Error",
-                      f"{abs(echo_amp-expected):.2e}")
+            c4.metric("Error", f"{abs(echo_amp-expected):.2e}")
             st.plotly_chart(
                 _fig_echo_detail(t, Mx, My, tau, T2),
                 width='stretch')
@@ -640,8 +769,8 @@ with tab_sim:
         # Echo Sweep
         elif experiment == "Echo Sweep":
             two_tau, amps = _analytic_echo_sweep(T2, tau_min, tau_max, n_tau)
-            log_A   = np.log(np.clip(amps, 1e-10, None))
-            T2_fit  = -1.0 / np.polyfit(two_tau, log_A, 1)[0]
+            log_A  = np.log(np.clip(amps, 1e-10, None))
+            T2_fit = -1.0 / np.polyfit(two_tau, log_A, 1)[0]
             c1, c2, c3 = st.columns(3)
             c1.metric("True T₂ (µs)",   f"{T2:.1f}")
             c2.metric("Fitted T₂ (µs)", f"{T2_fit:.2f}",
@@ -657,26 +786,24 @@ with tab_sim:
             fid_at   = float(np.exp(-2*tau/T2) * np.exp(-0.5*sigma**2*(2*tau)**2))
             T2star   = 1.0/(1.0/T2 + sigma) if sigma > 0 else T2
             c1, c2, c3, c4 = st.columns(4)
-            c1.metric("T₂ (µs)",             f"{T2:.1f}")
-            c2.metric("T₂* estimate (µs)",   f"{T2star:.2f}")
-            c3.metric("FID |M⊥| at 2τ",      f"{fid_at:.4f}")
-            c4.metric("Echo amp at 2τ",       f"{echo_amp:.4f}",
+            c1.metric("T₂ (µs)",           f"{T2:.1f}")
+            c2.metric("T₂* estimate (µs)", f"{T2star:.2f}")
+            c3.metric("FID |M⊥| at 2τ",    f"{fid_at:.4f}")
+            c4.metric("Echo amp at 2τ",     f"{echo_amp:.4f}",
                       delta=f"{echo_amp/max(fid_at,1e-9):.1f}× refocusing")
             st.plotly_chart(
                 _fig_fid_vs_echo(t, fid_env, t2_only, sigma, T2, tau),
                 width='stretch')
 
-        # ── 3D Bloch sphere — only for experiments that produce Mx/My/Mz ──────
-        # FID vs Echo and Echo Sweep do not compute per-component trajectories,
-        # so exclude them here to avoid a NameError.
+        # 3D Bloch sphere — only for experiments that produce Mx/My/Mz
         if show_sphere and experiment not in (
                 "Echo Sweep", "FID vs Echo (T₂* comparison)"):
             st.plotly_chart(
                 _fig_bloch_sphere_3d(Mx, My, Mz,
-                    f"Bloch Sphere — {experiment}"),
+                                     f"Bloch Sphere — {experiment}"),
                 width='stretch')
 
-        # ── CSV export ────────────────────────────────────────────────────────
+        # CSV export
         st.markdown("---")
         if experiment == "Echo Sweep":
             st.download_button(
@@ -686,21 +813,22 @@ with tab_sim:
                     .to_csv(index=False).encode(),
                 file_name="echo_sweep.csv", mime="text/csv")
         elif experiment == "FID vs Echo (T₂* comparison)":
-            # Mx/My/Mz are not computed for this experiment; export
-            # the envelope arrays that are actually calculated instead.
             st.download_button(
                 "Download FID vs Echo as CSV",
                 data=pd.DataFrame({
-                    "t_us":        t,
+                    "t_us":         t,
                     "FID_envelope": fid_env,
-                    "T2_decay":    t2_only,
+                    "T2_decay":     t2_only,
                 }).to_csv(index=False).encode(),
                 file_name="fid_vs_echo.csv", mime="text/csv")
         else:
             st.download_button(
                 "Download simulation as CSV",
                 data=pd.DataFrame({
-                    "t_us": t, "Mx": Mx, "My": My, "Mz": Mz,
+                    "t_us":   t,
+                    "Mx":     Mx,
+                    "My":     My,
+                    "Mz":     Mz,
                     "M_perp": np.sqrt(Mx**2 + My**2),
                 }).to_csv(index=False).encode(),
                 file_name="spin_sim.csv", mime="text/csv")
@@ -719,7 +847,6 @@ with tab_fit:
                                ["Synthetic (demo)", "Upload CSV"])
         fit_model   = st.selectbox("Fit model", list(MODEL_LABELS.keys()),
                                    format_func=lambda k: MODEL_LABELS[k])
-
         st.markdown("**Synthetic data settings**")
         true_T2_fit = st.slider("True T₂ (µs)",    0.5, 30.0, 8.0,  0.5)
         noise_fit   = st.slider("Noise level",      0.0,  0.1, 0.03, 0.005)
@@ -733,11 +860,9 @@ with tab_fit:
         elif fit_model == "T1_recovery":
             extra_params["T1"] = st.slider(
                 "True T₁ (synthetic)", 1.0, 100.0, 25.0, 1.0)
-
         st.markdown('<div class="section-divider"></div>',
                     unsafe_allow_html=True)
-        run_fit = st.button("Run Fit", type="primary",
-                            width='stretch')
+        run_fit = st.button("Run Fit", type="primary", width='stretch')
 
     with col_data:
         if data_source == "Upload CSV":
@@ -768,7 +893,6 @@ with tab_fit:
             else:
                 st.info("Upload a two-column CSV.")
         else:
-            # Live preview — updates as sliders move, never touches fit state
             t_prev = np.linspace(0, t_fit_range, n_pts_fit)
             rng    = np.random.default_rng(42)
             L_prev = (np.exp(-t_prev/true_T2_fit)
@@ -789,7 +913,6 @@ with tab_fit:
             pfig.update_yaxes(title_text="Coherence")
             st.plotly_chart(pfig, width='stretch')
 
-    # Run fit — generate data + fit together as one atomic action
     if run_fit:
         t_fd = L_fd = None
         with st.spinner("Fitting..."):
@@ -818,8 +941,6 @@ with tab_fit:
                     else:
                         params_r, errors_r, L_fitted = fit_multi_to_data(
                             t_fd, L_fd, model=fit_model)
-
-                    # Store complete snapshot — persists across all rerenders
                     st.session_state["fit_result"] = {
                         "t": t_fd, "L_data": L_fd, "L_fit": L_fitted,
                         "params": params_r, "errors": errors_r,
@@ -829,7 +950,6 @@ with tab_fit:
                 st.error(f"Fit failed: {e}")
                 st.session_state.pop("fit_result", None)
 
-    # Render persisted fit result
     if "fit_result" in st.session_state:
         fr = st.session_state["fit_result"]
         st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
@@ -839,28 +959,27 @@ with tab_fit:
                      fr["params"], fr["errors"],
                      MODEL_LABELS[fr["model"]]),
             width='stretch')
-
         res_cols = st.columns(len(fr["params"]))
         for col, (pname, pval) in zip(res_cols, fr["params"].items()):
             col.metric(pname, f"{pval:.4f}",
                        delta=f"±{fr['errors'].get(pname, 0):.4f}")
-
         resid = fr["L_data"] - fr["L_fit"]
         st.caption(
             f"RMSE = {np.sqrt(np.mean(resid**2)):.5f}   ·   "
             f"χ² = {np.sum(resid**2):.5f}   ·   "
             f"N = {len(fr['t'])} points   ·   "
             f"Model: {MODEL_LABELS[fr['model']]}")
-
         st.download_button(
             "Download fit results as CSV",
             data=pd.DataFrame({
-                "t": fr["t"], "data": fr["L_data"],
-                "fit": fr["L_fit"], "residual": resid,
+                "t":        fr["t"],
+                "data":     fr["L_data"],
+                "fit":      fr["L_fit"],
+                "residual": resid,
             }).to_csv(index=False).encode(),
             file_name="fit_results.csv", mime="text/csv")
 
 
 st.markdown("---")
 st.caption("Spin Coherence Simulator  ·  "
-           "Bloch equations  T₁/T₂  Pulse sequences  Ensemble  Fitting")
+           "Bloch equations  T₁/T₂  Pulse sequences  Ensemble  Rabi  Fitting")
