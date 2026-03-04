@@ -15,7 +15,7 @@ Sequence
 
 Signal
 ------
-    P↑(T) = ½ · (1 − cos(Δ·T) · exp(−T/T₂*))
+    P↑(T) = ½ · (1 - cos(Δ·T) · exp(-T/T₂*))
 
 The cosine oscillation vs free evolution time T gives "Ramsey fringes".
 Fringe frequency = Δ/(2π), so measuring fringe frequency gives Δ precisely.
@@ -50,7 +50,7 @@ def analytic_ramsey_population(
 ) -> np.ndarray:
     """Analytic Ramsey fringe signal with Gaussian T₂* envelope.
 
-    P↑(T) = offset + (contrast/2) · cos(Δ·T) · exp(−T/T₂*)
+    P↑(T) = offset + (contrast/2) · cos(Δ·T) · exp(-T/T₂*)
 
     For a pure state starting in |↑⟩ with ideal π/2 pulses:
         offset   = 0.5
@@ -59,7 +59,7 @@ def analytic_ramsey_population(
     Parameters
     ----------
     T_free   : free evolution time array
-    delta    : detuning Δ = ω_drive − ω₀  (rad / time_unit)
+    delta    : detuning Δ = ω_drive - ω₀  (rad / time_unit)
     T2_star  : effective coherence time (includes inhomogeneous broadening)
     contrast : fringe visibility in [0, 1]  (default 1.0 — ideal pulses)
     offset   : signal baseline  (default 0.5 — equal superposition)
@@ -90,7 +90,7 @@ def _apply_pi2_pulse(M: np.ndarray, axis: str = 'y') -> np.ndarray:
     """Instantaneous π/2 rotation in the rotating frame.
 
     Default axis='y' tips +z → +x  (standard Ramsey preparation).
-    Second pulse axis='y' maps +x → −z, −y → −z (converts phase → population).
+    Second pulse axis='y' maps +x → -z, -y → -z (converts phase → population).
     """
     Mx, My, Mz = M
     if axis == 'y':
@@ -121,7 +121,7 @@ def run_ramsey(
 
     Parameters
     ----------
-    delta      : detuning Δ = ω_drive − ω₀  (rad / time_unit)
+    delta      : detuning Δ = ω_drive - ω₀  (rad / time_unit)
     T1         : longitudinal relaxation time
     T2         : transverse relaxation time (T2 ≤ T1)
     T_free     : free evolution duration
@@ -218,7 +218,7 @@ def sweep_ramsey(
 # ============================================================================
 
 def _ramsey_model(T_free, delta_fit, T2_star, contrast, offset):
-    """Curve-fit model: P↑ = offset + (contrast/2)·cos(Δ·T)·exp(−T/T₂*)."""
+    """Curve-fit model: P↑ = offset + (contrast/2)·cos(Δ·T)·exp(-T/T₂*)."""
     return offset + (contrast / 2) * np.cos(delta_fit * T_free) * np.exp(-T_free / T2_star)
 
 
