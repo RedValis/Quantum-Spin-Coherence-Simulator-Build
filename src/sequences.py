@@ -166,7 +166,7 @@ def hahn_echo_sequence(
 
     For a single homogeneous spin the echo amplitude is:
 
-        |M_echo| = M0 · exp(−2τ / T2)
+        |M_echo| = M0 · exp(-2τ / T2)
 
     The π pulse refocuses *static* field inhomogeneity (addressed in
     Prototype 5 — ensemble). For a single spin it correctly reproduces
@@ -244,7 +244,7 @@ def cpmg_sequence(
     --------
     π/2  →  [τ → π → τ → (echo)]xn_echoes
 
-    Echo amplitudes decay as exp(−t_echo / T2) where t_echo = 2k·τ.
+    Echo amplitudes decay as exp(-t_echo / T2) where t_echo = 2k·τ.
     CPMG is robust to pulse imperfections because the Meiboom-Gill phase
     (tip on y, refocus on x) corrects systematic errors.
 
@@ -330,7 +330,7 @@ def measure_echo_amplitude(
     there is no local maximum to search for. The echo amplitude is
     simply the value at t = echo_time:
 
-        |M_echo| = M0 · exp(−2τ / T2)
+        |M_echo| = M0 · exp(-2τ / T2)
 
     For inhomogeneous ensembles (Prototype 5), a true peak forms at
     echo_time and this function will correctly return it.
@@ -363,7 +363,7 @@ def sweep_echo_amplitude(
 
     Generates the canonical T2 decay curve:
 
-        A_echo(2τ) = M0 · exp(−2τ / T2)
+        A_echo(2τ) = M0 · exp(-2τ / T2)
 
     Parameters
     ----------

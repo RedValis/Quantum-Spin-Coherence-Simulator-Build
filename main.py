@@ -54,11 +54,11 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 MODEL_LABELS = {
-    "simple_T2":    "L(t) = exp(−t/T₂)",
-    "gaussian_fid": "L(t) = exp(−t/T₂) · exp(−σ²t²/2)",
-    "hahn_echo":    "A(τ) = exp(−2τ/T₂)",
-    "T1_recovery":  "Mz(t) = M0·(1 − exp(−t/T₁))",
-    "stretched_T2": "L(t) = exp(−(t/T₂)^β)",
+    "simple_T2":    "L(t) = exp(-t/T₂)",
+    "gaussian_fid": "L(t) = exp(-t/T₂) · exp(-σ²t²/2)",
+    "hahn_echo":    "A(τ) = exp(-2τ/T₂)",
+    "T1_recovery":  "Mz(t) = M0·(1 - exp(-t/T₁))",
+    "stretched_T2": "L(t) = exp(-(t/T₂)^β)",
 }
 
 
@@ -78,8 +78,8 @@ def _analytic_single_spin(omega0, T1, T2, t_max, n=1200):
 def _analytic_ensemble_fid(omega0, sigma, T1, T2, t_max, n=1200):
     """Exact ensemble average for Gaussian frequency spread σ.
 
-    <Mx(t)> =  cos(ω₀t) · exp(−t/T₂) · exp(−σ²t²/2)
-    <My(t)> = −sin(ω₀t) · exp(−t/T₂) · exp(−σ²t²/2)
+    <Mx(t)> =  cos(ω₀t) · exp(-t/T₂) · exp(-σ²t²/2)
+    <My(t)> = -sin(ω₀t) · exp(-t/T₂) · exp(-σ²t²/2)
     """
     t        = np.linspace(0, t_max, n)
     envelope = np.exp(-t / T2) * np.exp(-0.5 * sigma**2 * t**2)
@@ -93,16 +93,16 @@ def _analytic_hahn_echo(omega0, T1, T2, tau, n=1200):
     """Exact single-spin Hahn echo in the lab frame.
 
     Phase 1 (0 → τ):
-        Mx =  cos(ω₀t) · exp(−t/T₂)
-        My = −sin(ω₀t) · exp(−t/T₂)
+        Mx =  cos(ω₀t) · exp(-t/T₂)
+        My = -sin(ω₀t) · exp(-t/T₂)
 
-    π_x pulse at t=τ flips My → −My, giving My_τ⁺ = +sin(ω₀τ)·exp(−τ/T₂)
+    π_x pulse at t=τ flips My → -My, giving My_τ⁺ = +sin(ω₀τ)·exp(-τ/T₂)
 
     Phase 2 (τ → 2τ):   [derived via rotation matrix from τ⁺ initial conditions]
-        Mx = cos(ω₀(2τ−t)) · exp(−t/T₂)
-        My = sin(ω₀(2τ−t)) · exp(−t/T₂)
+        Mx = cos(ω₀(2τ-t)) · exp(-t/T₂)
+        My = sin(ω₀(2τ-t)) · exp(-t/T₂)
 
-    At t=2τ:  Mx = exp(−2τ/T₂),  My = 0  →  echo.
+    At t=2τ:  Mx = exp(-2τ/T₂),  My = 0  →  echo.
     """
     half = n // 2
     t1   = np.linspace(0,   tau,   half,     endpoint=False)
@@ -126,7 +126,7 @@ def _analytic_hahn_echo(omega0, T1, T2, tau, n=1200):
 
 
 def _analytic_echo_sweep(T2, tau_min, tau_max, n=500):
-    """A(2τ) = exp(−2τ/T₂)."""
+    """A(2τ) = exp(-2τ/T₂)."""
     tau  = np.linspace(tau_min, tau_max, n)
     amps = np.exp(-2 * tau / T2)
     return 2 * tau, amps
@@ -210,7 +210,7 @@ def _fig_echo_detail(t, Mx, My, tau, T2):
     fig.add_trace(go.Scatter(x=t, y=M_perp, name="|M⊥|(t)",
                              line=dict(color=C_BLUE, width=2.5)))
     fig.add_trace(go.Scatter(x=t, y=np.exp(-t/T2),
-                             name=f"exp(−t/T₂)  T₂={T2} µs",
+                             name=f"exp(-t/T₂)  T₂={T2} µs",
                              line=dict(color=C_GREY, dash="dash", width=1.3)))
     fig.add_vline(x=tau,   line_dash="dot",  line_color=C_RED,
                   annotation_text="π pulse", annotation_position="top right")
@@ -238,7 +238,7 @@ def _fig_echo_sweep(two_tau, amps, T2):
     fig = go.Figure()
     fig.add_trace(go.Scatter(
         x=tt, y=np.exp(-tt / T2),
-        name=f"exp(−2τ/T₂)  T₂={T2} µs",
+        name=f"exp(-2τ/T₂)  T₂={T2} µs",
         line=dict(color=C_BLUE, dash="dash", width=1.8)))
     fig.add_trace(go.Scatter(
         x=tt, y=np.exp(coeffs[0]*tt + coeffs[1]),
@@ -268,7 +268,7 @@ def _fig_fid_vs_echo(t, fid_env, t2_only, sigma, T2, tau):
         line=dict(color=C_RED, width=2.5)))
     fig.add_trace(go.Scatter(
         x=t, y=t2_only,
-        name=f"exp(−t/T₂)  T₂={T2} µs",
+        name=f"exp(-t/T₂)  T₂={T2} µs",
         line=dict(color=C_BLUE, dash="dash", width=1.8)))
     fig.add_trace(go.Scatter(
         x=[2*tau], y=[echo_amp], mode="markers",
@@ -311,7 +311,7 @@ def _fig_fid_ensemble(t, Mx, My, sigma, T2):
                              line=dict(color=C_RED, dash="dash", width=1.5)),
                   row=1, col=2)
     fig.add_trace(go.Scatter(x=t_s, y=np.exp(-t_s/T2),
-                             name="exp(−t/T₂)",
+                             name="exp(-t/T₂)",
                              line=dict(color=C_GREY, dash="dot", width=1.2)),
                   row=1, col=2)
     fig.update_xaxes(title_text="Time (µs)")
@@ -338,7 +338,7 @@ def _fig_cpmg(t, Mx, My, Mz, echo_times, tau, T2, n_echoes):
                              line=dict(color=C_GREEN, width=1.2, dash="dash"),
                              opacity=0.7), row=1, col=1)
     fig.add_trace(go.Scatter(x=t, y=np.exp(-t/T2),
-                             name="exp(−t/T₂)",
+                             name="exp(-t/T₂)",
                              line=dict(color=C_GREY, dash="dot", width=1)),
                   row=1, col=1)
 
@@ -356,7 +356,7 @@ def _fig_cpmg(t, Mx, My, Mz, echo_times, tau, T2, n_echoes):
         line=dict(color=C_BLUE, width=1.5)), row=2, col=1)
     fig.add_trace(go.Scatter(
         x=echo_times, y=np.exp(-np.array(echo_times)/T2),
-        name="exp(−t/T₂)",
+        name="exp(-t/T₂)",
         line=dict(color=C_RED, dash="dash", width=1.8)),
         row=2, col=1)
 
