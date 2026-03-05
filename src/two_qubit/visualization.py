@@ -1,5 +1,5 @@
 """
-visualization.py — Two-qubit entanglement and density matrix visualizations.
+visualization.py - Two-qubit entanglement and density matrix visualizations.
 =============================================================================
 
 Plot functions
@@ -137,7 +137,7 @@ def plot_dm_heatmap(
 
 def plot_hinton(
     rho: np.ndarray,
-    title: str = "Hinton Diagram — Density Matrix",
+    title: str = "Hinton Diagram - Density Matrix",
     save_path: Optional[str] = None,
 ) -> plt.Figure:
     """Hinton diagram: squares whose area encodes |ρ_ij|, colour encodes phase.

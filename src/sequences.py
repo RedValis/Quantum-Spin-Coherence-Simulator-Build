@@ -66,12 +66,12 @@ def apply_pulse(
 
     Implements the hard-pulse approximation: the pulse duration is negligible
     compared to T1, T2, and the Larmor period. The rotation is exact via
-    SO(3) rotation matrices — zero numerical error in the pulse itself.
+    SO(3) rotation matrices - zero numerical error in the pulse itself.
 
     Parameters
     ----------
     M     : (3,) array  Bloch vector [Mx, My, Mz]
-    axis  : str         rotation axis — 'x', 'y', 'z', '-x', '-y', '-z'
+    axis  : str         rotation axis - 'x', 'y', 'z', '-x', '-y', '-z'
     angle : float       rotation angle in radians
                           np.pi/2  →  90°  tip pulse
                           np.pi    →  180° inversion / refocusing pulse
@@ -169,7 +169,7 @@ def hahn_echo_sequence(
         |M_echo| = M0 · exp(-2τ / T2)
 
     The π pulse refocuses *static* field inhomogeneity (addressed in
-    Prototype 5 — ensemble). For a single spin it correctly reproduces
+    Prototype 5 - ensemble). For a single spin it correctly reproduces
     the T2 envelope.
 
     Parameters
@@ -258,7 +258,7 @@ def cpmg_sequence(
     Returns
     -------
     t, Mx, My, Mz : full time axis and Bloch components
-    echo_times    : (n_echoes,) array — echo centres at 2k·τ, k=1..n_echoes
+    echo_times    : (n_echoes,) array - echo centres at 2k·τ, k=1..n_echoes
     """
     if n_echoes < 1:
         raise ValueError(f"n_echoes must be ≥ 1, got {n_echoes}")
@@ -326,7 +326,7 @@ def measure_echo_amplitude(
     Finds the index in *t* closest to *echo_time* and returns
     sqrt(Mx² + My²) at that point.
 
-    For a single homogeneous spin, |M_perp| decays monotonically —
+    For a single homogeneous spin, |M_perp| decays monotonically -
     there is no local maximum to search for. The echo amplitude is
     simply the value at t = echo_time:
 

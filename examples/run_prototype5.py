@@ -1,7 +1,7 @@
 """
 examples/run_prototype5.py
 ==========================
-Prototype 5: inhomogeneous spin ensemble — FID vs Hahn echo.
+Prototype 5: inhomogeneous spin ensemble - FID vs Hahn echo.
 
 Outputs:
   prototype5_fid_sigma_sweep.png   - FID for multiple sigma values
@@ -85,7 +85,7 @@ p1 = os.path.join(OUT, "prototype5_fid_sigma_sweep.png")
 fig1.savefig(p1, dpi=150, bbox_inches="tight")
 print(f"  Saved → {p1}")
 
-# -- Plot 2: FID vs Hahn echo — T2* vs T2 -------------------------------------
+# -- Plot 2: FID vs Hahn echo - T2* vs T2 -------------------------------------
 sigma2 = 0.40
 tau2   = 6.0
 
@@ -130,7 +130,7 @@ ax2.scatter([2*tau2], [amp_fid2],  s=60, color="#E63946", zorder=8)
 ax2.set_xlabel("Time (µs)", fontsize=12)
 ax2.set_ylabel(r"$|\langle M_\perp\rangle|$", fontsize=12)
 ax2.set_title(
-    rf"FID vs Hahn Echo — $T_2^*$ vs $T_2$  ($\sigma$={sigma2} rad/µs, $T_2$={T2} µs)",
+    rf"FID vs Hahn Echo - $T_2^*$ vs $T_2$  ($\sigma$={sigma2} rad/µs, $T_2$={T2} µs)",
     fontsize=12, fontweight="bold")
 ax2.legend(fontsize=9, framealpha=0.85)
 ax2.grid(True, ls="--", alpha=0.35)
@@ -141,7 +141,7 @@ p2 = os.path.join(OUT, "prototype5_fid_vs_echo.png")
 fig2.savefig(p2, dpi=150, bbox_inches="tight")
 print(f"  Saved → {p2}")
 
-# -- Plot 3: Echo sweep — T2 extracted independent of sigma -------------------
+# -- Plot 3: Echo sweep - T2 extracted independent of sigma -------------------
 tau_arr = np.linspace(1.0, 20.0, 14)
 fig3, ax3 = plt.subplots(figsize=(8, 5))
 
@@ -164,7 +164,7 @@ ax3.plot(t_ref3, M0*np.exp(-t_ref3/T2), "k:", lw=1.5, alpha=0.5,
 ax3.axhline(1/np.e, color="#888888", lw=1.0, ls="--", alpha=0.4, label="1/e")
 ax3.set_xlabel(r"Echo time $2\tau$ (µs)", fontsize=12)
 ax3.set_ylabel("Echo amplitude", fontsize=12)
-ax3.set_title(r"Echo Amplitude vs $2\tau$ — $T_2$ independent of $\sigma$",
+ax3.set_title(r"Echo Amplitude vs $2\tau$ - $T_2$ independent of $\sigma$",
               fontsize=12, fontweight="bold")
 ax3.legend(fontsize=9, framealpha=0.85)
 ax3.grid(True, ls="--", alpha=0.35)

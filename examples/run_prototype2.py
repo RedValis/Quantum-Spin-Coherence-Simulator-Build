@@ -69,7 +69,7 @@ fig_comp = plot_bloch_components(
     t, Mx, My, Mz,
     T2=T2, omega0=omega0,
     time_unit="µs",
-    title=rf"Bloch Components — $\omega_0$ = 2πx{f0} MHz,  $T_2$ = {T2} µs",
+    title=rf"Bloch Components - $\omega_0$ = 2πx{f0} MHz,  $T_2$ = {T2} µs",
     save_path=p_comp,
 )
 print(f"  Saved → {p_comp}")
@@ -79,7 +79,7 @@ p_sphere = os.path.join(out_dir, "prototype2_bloch_sphere.png")
 
 fig_sphere = plot_bloch_sphere_trajectory(
     Mx, My, Mz,
-    title=rf"Bloch Sphere — $\omega_0$=2πx{f0} MHz,  $T_2$={T2} µs",
+    title=rf"Bloch Sphere - $\omega_0$=2πx{f0} MHz,  $T_2$={T2} µs",
     save_path=p_sphere,
 )
 print(f"  Saved → {p_sphere}")
@@ -95,7 +95,7 @@ if args.animate:
     anim = animate_bloch_trajectory(
         Mx, My, Mz,
         stride=6, interval=30,
-        title=rf"Bloch Vector — $T_2$={T2} µs",
+        title=rf"Bloch Vector - $T_2$={T2} µs",
         save_path=p_gif,
         writer="pillow",
     )

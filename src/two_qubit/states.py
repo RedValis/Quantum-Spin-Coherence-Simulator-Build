@@ -1,5 +1,5 @@
 """
-states.py — Two-qubit state space: basis, Bell states, tensor products.
+states.py - Two-qubit state space: basis, Bell states, tensor products.
 =======================================================================
 
 Two-qubit Hilbert space H = H_A ⊗ H_B  is 4-dimensional.
@@ -15,10 +15,10 @@ Basis vector index map
 
 Bell states (maximally entangled)
 ----------------------------------
-    |Φ+⟩ = (|00⟩ + |11⟩)/√2   — zero total spin, symmetric
-    |Φ-⟩ = (|00⟩ - |11⟩)/√2   — zero total spin, antisymmetric
-    |Ψ+⟩ = (|01⟩ + |10⟩)/√2   — triplet S=1, Sz=0
-    |Ψ-⟩ = (|01⟩ - |10⟩)/√2   — singlet S=0 (antisymmetric)
+    |Φ+⟩ = (|00⟩ + |11⟩)/√2   - zero total spin, symmetric
+    |Φ-⟩ = (|00⟩ - |11⟩)/√2   - zero total spin, antisymmetric
+    |Ψ+⟩ = (|01⟩ + |10⟩)/√2   - triplet S=1, Sz=0
+    |Ψ-⟩ = (|01⟩ - |10⟩)/√2   - singlet S=0 (antisymmetric)
 
 The Bell states form an orthonormal basis for H and are all maximally
 entangled: tracing out either qubit gives I/2 (maximally mixed).
@@ -146,7 +146,7 @@ def bell_state(which: str = "phi_plus") -> np.ndarray:
 
     Parameters
     ----------
-    which : str — one of:
+    which : str - one of:
         'phi_plus'  |Φ+⟩ = (|00⟩ + |11⟩)/√2   (default)
         'phi_minus' |Φ-⟩ = (|00⟩ - |11⟩)/√2
         'psi_plus'  |Ψ+⟩ = (|01⟩ + |10⟩)/√2
@@ -265,7 +265,7 @@ def ghz_like_state(n_qubits: int = 2) -> np.ndarray:
 # ============================================================================
 
 def inner_product(psi: np.ndarray, phi: np.ndarray) -> complex:
-    """⟨ψ|φ⟩ — complex inner product."""
+    """⟨ψ|φ⟩ - complex inner product."""
     return complex(np.conj(psi) @ phi)
 
 
@@ -312,7 +312,7 @@ def is_entangled(psi: np.ndarray, tol: float = 1e-8) -> bool:
 
     Returns
     -------
-    bool — True if entangled
+    bool - True if entangled
     """
     # Schmidt decomposition via SVD of the coefficient matrix
     M    = psi.reshape(2, 2)

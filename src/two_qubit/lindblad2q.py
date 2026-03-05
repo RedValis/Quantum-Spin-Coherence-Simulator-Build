@@ -1,5 +1,5 @@
 """
-lindblad2q.py — Two-qubit open-system Lindblad master equation.
+lindblad2q.py - Two-qubit open-system Lindblad master equation.
 ================================================================
 
 Extends the single-qubit Lindblad formalism (density_matrix.py) to the
@@ -21,7 +21,7 @@ Local noise (independent on each qubit):
 Correlated noise:
     Two-qubit dephasing where both qubits see the same bath fluctuation.
     L_ZZ = √γ_ZZ · (σz ⊗ σz)
-    This creates correlated phase noise — relevant for NV centres in
+    This creates correlated phase noise - relevant for NV centres in
     diamond or ions in the same trap.
 
 Depolarizing (local or global):
@@ -31,7 +31,7 @@ Depolarizing (local or global):
 Entanglement sudden death (ESD)
 --------------------------------
 Under local amplitude damping, entanglement can reach zero in *finite*
-time even though the state never fully decoheres — "sudden death" of
+time even though the state never fully decoheres - "sudden death" of
 entanglement.  This module makes ESD easy to observe by tracking
 concurrence alongside the density matrix trajectory.
 
@@ -306,7 +306,7 @@ def simulate_2q(
     -------
     t      : (n,)      time axis
     rho_t  : (n,4,4)   density matrix trajectory
-    ent    : dict of (n,) arrays — only if track_ent=True, else None
+    ent    : dict of (n,) arrays - only if track_ent=True, else None
         'concurrence', 'negativity', 'entropy_A', 'entanglement_of_formation',
         'purity_A', 'purity_B'
     """
@@ -364,7 +364,7 @@ def entanglement_sudden_death(
     """Demonstrate entanglement sudden death under local amplitude damping.
 
     Starting from a Bell state, local (independent) amplitude damping
-    causes the concurrence to drop to zero in *finite* time — even though
+    causes the concurrence to drop to zero in *finite* time - even though
     the individual qubit coherences decay asymptotically as exp(-t/T1).
 
     This is a hallmark of quantum correlations: they can be more fragile
@@ -420,7 +420,7 @@ def correlated_vs_local_dephasing(
     phase coherence and kills entanglement.
 
     Correlated ZZ dephasing (both qubits see the same phase noise)
-    preserves |Φ+⟩ = (|00⟩+|11⟩)/√2 exactly — the ZZ operator
+    preserves |Φ+⟩ = (|00⟩+|11⟩)/√2 exactly - the ZZ operator
     commutes with |Φ+⟩ and |Φ-⟩ (both are eigenstates of σz⊗σz).
 
     This contrast reveals that the *structure* of noise, not just its

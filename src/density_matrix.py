@@ -50,7 +50,7 @@ Three canonical noise channels are implemented:
      Bloch: M_perp → 0, Mz unaffected.
 
   3. Depolarizing Noise (T_dep)
-     Models isotropic noise — errors equally likely in all directions.
+     Models isotropic noise - errors equally likely in all directions.
      L_x = √(γ_dep/4) · σx
      L_y = √(γ_dep/4) · σy
      L_z = √(γ_dep/4) · σz,   γ_dep = 1/T_dep
@@ -79,11 +79,11 @@ I2      = np.eye(2, dtype=complex)
 sx      = np.array([[0, 1],   [1,  0]],  dtype=complex)
 sy      = np.array([[0, -1j], [1j, 0]],  dtype=complex)
 sz      = np.array([[1, 0],   [0, -1]],  dtype=complex)
-s_plus  = np.array([[0, 1],   [0,  0]],  dtype=complex)   # |↑⟩⟨↓| — raises
-s_minus = np.array([[0, 0],   [1,  0]],  dtype=complex)   # |↓⟩⟨↑| — lowers
+s_plus  = np.array([[0, 1],   [0,  0]],  dtype=complex)   # |↑⟩⟨↓| - raises
+s_minus = np.array([[0, 0],   [1,  0]],  dtype=complex)   # |↓⟩⟨↑| - lowers
 
-KET_UP   = np.array([[1], [0]], dtype=complex)   # |↑⟩ — ground state
-KET_DOWN = np.array([[0], [1]], dtype=complex)   # |↓⟩ — excited state
+KET_UP   = np.array([[1], [0]], dtype=complex)   # |↑⟩ - ground state
+KET_DOWN = np.array([[0], [1]], dtype=complex)   # |↓⟩ - excited state
 
 
 # ============================================================================
@@ -132,7 +132,7 @@ class NoiseModel:
             T2_max = 2.0 * self.T1
             if self.T2 > T2_max:
                 raise ValueError(
-                    f"T2 ({self.T2}) cannot exceed 2·T1 ({T2_max}) — "
+                    f"T2 ({self.T2}) cannot exceed 2·T1 ({T2_max}) - "
                     "pure dephasing rate would be negative (unphysical)."
                 )
         active = []
@@ -199,7 +199,7 @@ class NoiseModel:
         if γφ > 0:
             ops.append((sz, γφ))
 
-        # 3. Depolarizing — three equal-strength channels
+        # 3. Depolarizing - three equal-strength channels
         γd = self._gamma_dep()
         if γd > 0:
             # D[σx] + D[σy] + D[σz] drives ρ → I/2 at rate γ_dep
@@ -267,7 +267,7 @@ def noise_amplitude_damping(T1: float) -> NoiseModel:
 
 
 def noise_phase_damping(T2: float) -> NoiseModel:
-    """Pure phase damping — dephasing with no energy relaxation.
+    """Pure phase damping - dephasing with no energy relaxation.
 
     T1 → ∞ so there is no amplitude damping contribution.
     Physical model for low-frequency magnetic field fluctuations.
@@ -284,7 +284,7 @@ def noise_phase_damping(T2: float) -> NoiseModel:
 
 
 def noise_depolarizing(T_dep: float) -> NoiseModel:
-    """Pure depolarizing channel — isotropic noise in all directions.
+    """Pure depolarizing channel - isotropic noise in all directions.
 
     Drives any state to I/2 (maximally mixed) at rate 1/T_dep.
     Common benchmarking model; not directly physical but parametrises
@@ -385,7 +385,7 @@ def bloch_to_dm(r: np.ndarray) -> np.ndarray:
 
 
 def purity(rho: np.ndarray) -> float:
-    """Return Tr(ρ²) — equals 1 for pure states, 0.5 for maximally mixed."""
+    """Return Tr(ρ²) - equals 1 for pure states, 0.5 for maximally mixed."""
     return float(np.real(np.trace(rho @ rho)))
 
 
@@ -395,7 +395,7 @@ def population(rho: np.ndarray) -> Tuple[float, float]:
 
 
 def coherence(rho: np.ndarray) -> complex:
-    """Return off-diagonal element ρ₀₁ — the quantum coherence."""
+    """Return off-diagonal element ρ₀₁ - the quantum coherence."""
     return complex(rho[0, 1])
 
 
@@ -464,7 +464,7 @@ def lindblad_rhs(
 
     Returns
     -------
-    drho_dt : (2,2) complex array — time derivative of ρ
+    drho_dt : (2,2) complex array - time derivative of ρ
     """
     # Coherent evolution: -i[H, ρ]
     drho = -1j * (H @ rho - rho @ H)
@@ -593,7 +593,7 @@ def depolarizing_analytic(
 
 
 # ============================================================================
-# ODE solver — general NoiseModel
+# ODE solver - general NoiseModel
 # ============================================================================
 
 def simulate_dm(
@@ -621,7 +621,7 @@ def simulate_dm(
     ----------
     rho0  : (2,2) initial density matrix
     H     : (2,2) Hamiltonian (time-independent; ℏ=1)
-    noise : NoiseModel — selects amplitude damping, phase damping, depolarizing
+    noise : NoiseModel - selects amplitude damping, phase damping, depolarizing
     t_max : simulation duration
     n     : number of output time points
 
@@ -631,7 +631,7 @@ def simulate_dm(
     rx     : (n,)  Bloch x component
     ry     : (n,)  Bloch y component
     rz     : (n,)  Bloch z component
-    pur    : (n,)  purity Tr(ρ²) — tracks pure→mixed transition
+    pur    : (n,)  purity Tr(ρ²) - tracks pure→mixed transition
     """
     # --- signature dispatch ---------------------------------------------------
     if isinstance(noise_or_T1, NoiseModel):
@@ -890,7 +890,7 @@ def bloch_vs_dm_error(
 
 
 # ============================================================================
-# lindblad_rhs — legacy alias (T1, T2 float API)
+# lindblad_rhs - legacy alias (T1, T2 float API)
 # ============================================================================
 
 def lindblad_rhs_legacy(

@@ -10,6 +10,7 @@ src/rabi.py           — Rabi oscillation, chevron, analytic helpers
 src/ramsey.py         — Ramsey interference, fringe fitting, sensitivity
 src/density_matrix.py — Lindblad master equation, open quantum systems
 src/fitting.py        — curve fitting, model registry
+src/two_qubit/        — Bell states, CNOT, entanglement, two-qubit Lindblad
 
 Run:  streamlit run app.py
 """
@@ -41,6 +42,28 @@ from src.density_matrix import (
 from src.fitting import (
     fit_T2_to_data, fit_multi_to_data,
     generate_synthetic_data, MODEL_REGISTRY,
+)
+
+# ── Two-qubit imports ─────────────────────────────────────────────────────────
+from src.two_qubit.states import (
+    bell_state, all_bell_states, ket_to_dm, product_state,
+    random_pure_state, state_summary, KET_00,
+)
+from src.two_qubit.gates import (
+    CNOT, CZ, SWAP_gate, iSWAP_gate, XX_gate, prepare_bell_state,
+    run_circuit, evolve_unitary, two_qubit_hamiltonian,
+    GATE_H, GATE_X, GATE_Y, GATE_Z,
+)
+from src.two_qubit.entanglement import (
+    concurrence, entanglement_entropy, negativity, logarithmic_negativity,
+    von_neumann_entropy, partial_trace, entanglement_summary,
+    track_entanglement, chsh_value, entanglement_of_formation,
+    schmidt_decomposition,
+)
+from src.two_qubit.lindblad2q import (
+    TwoQubitNoiseModel, simulate_2q,
+    entanglement_sudden_death, correlated_vs_local_dephasing,
+    noise_identical_qubits, noise_amplitude_only, noise_dephasing_only,
 )
 
 
@@ -75,11 +98,11 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 MODEL_LABELS = {
-    "simple_T2":    "L(t) = exp(-t/T₂)",
-    "gaussian_fid": "L(t) = exp(-t/T₂) · exp(-σ²t²/2)",
-    "hahn_echo":    "A(τ) = exp(-2τ/T₂)",
-    "T1_recovery":  "Mz(t) = M0·(1 - exp(-t/T₁))",
-    "stretched_T2": "L(t) = exp(-(t/T₂)^β)",
+    "simple_T2":    "L(t) = exp(−t/T₂)",
+    "gaussian_fid": "L(t) = exp(−t/T₂) · exp(−σ²t²/2)",
+    "hahn_echo":    "A(τ) = exp(−2τ/T₂)",
+    "T1_recovery":  "Mz(t) = M0·(1 − exp(−t/T₁))",
+    "stretched_T2": "L(t) = exp(−(t/T₂)^β)",
 }
 
 EXPERIMENTS = [
@@ -92,7 +115,18 @@ EXPERIMENTS = [
     "Rabi Oscillation",
     "Ramsey Interference",
     "Density Matrix",
+    "Two-Qubit: Bell States & Gates",
+    "Two-Qubit: Noise & Entanglement",
 ]
+
+BELL_LABELS = {
+    "phi_plus":  "|Φ+⟩ = (|00⟩ + |11⟩)/√2",
+    "phi_minus": "|Φ-⟩ = (|00⟩ − |11⟩)/√2",
+    "psi_plus":  "|Ψ+⟩ = (|01⟩ + |10⟩)/√2",
+    "psi_minus": "|Ψ-⟩ = (|01⟩ − |10⟩)/√2",
+}
+
+BASIS_LABELS_2Q = ["|00⟩", "|01⟩", "|10⟩", "|11⟩"]
 
 
 # ============================================================================
@@ -171,13 +205,12 @@ def _run_ramsey_sweep(delta, T1, T2, T_free_max, n_sweep):
 
 @st.cache_data(show_spinner=False)
 def _run_dm(rho0_tag, H_flat, T1, T2, t_max, n):
-    """rho0_tag is a string key so @cache_data can hash it."""
     H = np.array(H_flat, dtype=complex).reshape(2, 2)
     rho0_map = {
-        "ground":       ground_state_dm(),
+        "ground":        ground_state_dm(),
         "superposition": superposition_dm(theta=np.pi/2, phi=0.0),
-        "mixed_0.5":    mixed_state_dm(0.5),
-        "mixed_0.0":    mixed_state_dm(0.0),
+        "mixed_0.5":     mixed_state_dm(0.5),
+        "mixed_0.0":     mixed_state_dm(0.0),
     }
     rho0 = rho0_map.get(rho0_tag, ground_state_dm())
     return simulate_dm(rho0, H, T1, T2, t_max, n=n)
@@ -186,6 +219,51 @@ def _run_dm(rho0_tag, H_flat, T1, T2, t_max, n):
 @st.cache_data(show_spinner=False)
 def _run_dm_validation(omega_rabi, delta, T1, T2, t_max):
     return bloch_vs_dm_error(omega_rabi, delta, T1, T2, t_max, n=400)
+
+
+# ── Two-qubit cached runners ─────────────────────────────────────────────────
+
+@st.cache_data(show_spinner=False)
+def _run_2q_noise(T1_A, T2_A, T1_B, T2_B, T_dep_A, T_dep_B, T_ZZ,
+                  bell_name, t_max, n):
+    """Integrate two-qubit Lindblad from a Bell state with given noise."""
+    rho0  = ket_to_dm(bell_state(bell_name))
+    H     = np.zeros((4, 4), dtype=complex)
+    nm    = TwoQubitNoiseModel(
+        T1_A=T1_A, T2_A=T2_A,
+        T1_B=T1_B, T2_B=T2_B,
+        T_dep_A=T_dep_A, T_dep_B=T_dep_B,
+        T_ZZ=T_ZZ,
+    )
+    t, rho_t, ent = simulate_2q(rho0, H, nm, t_max=t_max, n=n)
+    # Serialise rho_t as flat float array for cache hashing
+    return t, rho_t.real, rho_t.imag, ent
+
+
+@st.cache_data(show_spinner=False)
+def _run_esd(bell_name, T1_A, T1_B, T2_A, T2_B, t_max, n):
+    rho0  = ket_to_dm(bell_state(bell_name))
+    H     = np.zeros((4, 4), dtype=complex)
+    noise = TwoQubitNoiseModel(T1_A=T1_A, T2_A=T2_A, T1_B=T1_B, T2_B=T2_B)
+    t, rho_t, ent = simulate_2q(rho0, H, noise, t_max=t_max, n=n)
+    return t, ent['concurrence'], ent['purity_A']
+
+
+@st.cache_data(show_spinner=False)
+def _run_correlated_comparison(T2, T_ZZ, t_max, n):
+    return correlated_vs_local_dephasing(T2=T2, T_ZZ=T_ZZ, t_max=t_max, n=n)
+
+
+@st.cache_data(show_spinner=False)
+def _run_xx_sweep(n_angles):
+    """Concurrence of XX(θ)|00⟩ as θ sweeps 0→π."""
+    angles = np.linspace(0, np.pi, n_angles)
+    concs  = np.empty(n_angles)
+    for i, theta in enumerate(angles):
+        psi  = XX_gate(theta) @ KET_00.astype(complex)
+        rho  = ket_to_dm(psi)
+        concs[i] = concurrence(rho)
+    return angles, concs
 
 
 # ============================================================================
@@ -238,7 +316,7 @@ def _fig_echo_detail(t, Mx, My, tau, T2):
     fig.add_trace(go.Scatter(x=t, y=M_perp, name="|M⊥|(t)",
                              line=dict(color=C_BLUE, width=2.5)))
     fig.add_trace(go.Scatter(x=t, y=np.exp(-t/T2),
-                             name=f"exp(-t/T₂)  T₂={T2} µs",
+                             name=f"exp(−t/T₂)  T₂={T2} µs",
                              line=dict(color=C_GREY, dash="dash", width=1.3)))
     fig.add_vline(x=tau,   line_dash="dot",  line_color=C_RED,
                   annotation_text="π pulse", annotation_position="top right")
@@ -262,7 +340,7 @@ def _fig_echo_sweep(two_tau, amps, T2):
     tt = np.linspace(two_tau[0], two_tau[-1], 600)
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=tt, y=np.exp(-tt / T2),
-                             name=f"exp(-2τ/T₂)  T₂={T2} µs",
+                             name=f"exp(−2τ/T₂)  T₂={T2} µs",
                              line=dict(color=C_BLUE, dash="dash", width=1.8)))
     fig.add_trace(go.Scatter(x=tt, y=np.exp(coeffs[0]*tt + coeffs[1]),
                              name=f"Fitted  T₂ = {T2_fit:.2f} µs",
@@ -287,7 +365,7 @@ def _fig_fid_vs_echo(t, fid_env, t2_only, sigma, T2, tau):
                              name=f"FID envelope  σ={sigma:.2f} rad/µs",
                              line=dict(color=C_RED, width=2.5)))
     fig.add_trace(go.Scatter(x=t, y=t2_only,
-                             name=f"exp(-t/T₂)  T₂={T2} µs",
+                             name=f"exp(−t/T₂)  T₂={T2} µs",
                              line=dict(color=C_BLUE, dash="dash", width=1.8)))
     fig.add_trace(go.Scatter(x=[2*tau], y=[echo_amp], mode="markers",
                              marker=dict(color=C_GREEN, size=14, symbol="star"),
@@ -323,7 +401,7 @@ def _fig_fid_ensemble(t, Mx, My, sigma, T2):
     fig.add_trace(go.Scatter(x=t_s, y=env, name="Analytic envelope",
                              line=dict(color=C_RED, dash="dash", width=1.5)),
                   row=1, col=2)
-    fig.add_trace(go.Scatter(x=t_s, y=np.exp(-t_s/T2), name="exp(-t/T₂)",
+    fig.add_trace(go.Scatter(x=t_s, y=np.exp(-t_s/T2), name="exp(−t/T₂)",
                              line=dict(color=C_GREY, dash="dot", width=1.2)),
                   row=1, col=2)
     fig.update_xaxes(title_text="Time (µs)")
@@ -345,7 +423,7 @@ def _fig_cpmg(t, Mx, My, Mz, echo_times, tau, T2, n_echoes):
     fig.add_trace(go.Scatter(x=t, y=Mz, name="Mz(t)",
                              line=dict(color=C_GREEN, width=1.2, dash="dash"),
                              opacity=0.7), row=1, col=1)
-    fig.add_trace(go.Scatter(x=t, y=np.exp(-t/T2), name="exp(-t/T₂)",
+    fig.add_trace(go.Scatter(x=t, y=np.exp(-t/T2), name="exp(−t/T₂)",
                              line=dict(color=C_GREY, dash="dot", width=1)),
                   row=1, col=1)
     fig.add_trace(go.Scatter(x=echo_times, y=echo_amps, mode="markers",
@@ -357,7 +435,7 @@ def _fig_cpmg(t, Mx, My, Mz, echo_times, tau, T2, n_echoes):
                              line=dict(color=C_BLUE, width=1.5)), row=2, col=1)
     fig.add_trace(go.Scatter(x=echo_times,
                              y=np.exp(-np.array(echo_times)/T2),
-                             name="exp(-t/T₂)",
+                             name="exp(−t/T₂)",
                              line=dict(color=C_RED, dash="dash", width=1.8)),
                   row=2, col=1)
     fig.update_xaxes(title_text="Time (µs)", row=2, col=1)
@@ -551,10 +629,8 @@ def _fig_rabi_resonance_scan(omega_rabi, delta_max, t_pi):
 # ── Ramsey figure builders ────────────────────────────────────────────────────
 
 def _fig_ramsey_fringes(T_free, P_up, params, errors, P_fit, delta, T2, T2_star_fit):
-    """Ramsey fringe pattern with analytic overlay and fit."""
     T_analytic = np.linspace(T_free[0], T_free[-1], 600)
     P_analytic = analytic_ramsey_population(T_analytic, delta, T2)
-
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=T_free, y=P_up,
                              name="Simulated fringes",
@@ -580,7 +656,6 @@ def _fig_ramsey_fringes(T_free, P_up, params, errors, P_fit, delta, T2, T2_star_
 
 
 def _fig_ramsey_detuning_scan(T2, T_free_fixed, delta_range):
-    """P↑ vs detuning Δ at fixed free evolution time — spectroscopy scan."""
     deltas = np.linspace(-delta_range, delta_range, 500)
     P      = 0.5 + 0.5 * np.cos(deltas * T_free_fixed) * np.exp(-T_free_fixed / T2)
     fig = go.Figure()
@@ -601,7 +676,6 @@ def _fig_ramsey_detuning_scan(T2, T_free_fixed, delta_range):
 # ── Density matrix figure builders ───────────────────────────────────────────
 
 def _fig_dm_bloch(t, rx, ry, rz, pur, T2, title):
-    """Bloch vector components and purity from density matrix evolution."""
     fig = make_subplots(rows=2, cols=2,
                         subplot_titles=("rx(t) = Mx", "ry(t) = My",
                                         "rz(t) = Mz", "Purity Tr(ρ²)"))
@@ -614,7 +688,6 @@ def _fig_dm_bloch(t, rx, ry, rz, pur, T2, title):
         fig.add_trace(go.Scatter(x=t, y=data, name=name,
                                  line=dict(color=color, width=2)),
                       row=row, col=col)
-    # T₂ envelope on rx, ry
     env = np.exp(-t / T2)
     for (row, col) in [(1,1), (1,2)]:
         for sign in (1, -1):
@@ -622,7 +695,6 @@ def _fig_dm_bloch(t, rx, ry, rz, pur, T2, title):
                                      line=dict(color=C_GREY, dash="dash", width=1),
                                      hoverinfo="skip"),
                           row=row, col=col)
-    # Purity references
     fig.add_hline(y=1.0, line_dash="dot", line_color=C_GREY,
                   annotation_text="pure", row=2, col=2)
     fig.add_hline(y=0.5, line_dash="dot", line_color=C_GREY,
@@ -635,7 +707,6 @@ def _fig_dm_bloch(t, rx, ry, rz, pur, T2, title):
 
 
 def _fig_dm_validation(t, bloch_dm, max_err, omega_rabi, delta):
-    """Density matrix vs Bloch ODE cross-validation."""
     fig = go.Figure()
     labels = ["rx  (Mx)", "ry  (My)", "rz  (Mz)"]
     colors = [C_BLUE, C_PURP, C_GREEN]
@@ -652,6 +723,328 @@ def _fig_dm_validation(t, bloch_dm, max_err, omega_rabi, delta):
 
 
 # ============================================================================
+# Two-qubit figure builders
+# ============================================================================
+
+def _fig_dm_heatmap_2q(rho, title="Density Matrix  ρ", show_imag=True):
+    """Re(ρ) and Im(ρ) as annotated Plotly heatmaps."""
+    n_cols = 2 if show_imag else 1
+    subtitles = ["Re(ρ)", "Im(ρ)"] if show_imag else ["Re(ρ)"]
+    fig = make_subplots(rows=1, cols=n_cols, subplot_titles=subtitles,
+                        horizontal_spacing=0.12)
+
+    for col, (label, data, cscale) in enumerate([
+        ("Re", np.real(rho), "RdBu_r"),
+        ("Im", np.imag(rho), "RdBu_r"),
+    ][:n_cols], start=1):
+        annotations = []
+        for i in range(4):
+            for j in range(4):
+                annotations.append(dict(
+                    x=j, y=i, xref=f"x{col}", yref=f"y{col}",
+                    text=f"{data[i,j]:.3f}",
+                    showarrow=False,
+                    font=dict(size=9, color="black" if abs(data[i,j]) < 0.4 else "white"),
+                ))
+        fig.add_trace(go.Heatmap(
+            z=data,
+            x=BASIS_LABELS_2Q,
+            y=BASIS_LABELS_2Q,
+            colorscale=cscale,
+            zmid=0, zmin=-1, zmax=1,
+            showscale=True,
+            colorbar=dict(x=0.46 if col == 1 else 1.0, thickness=14, len=0.8),
+        ), row=1, col=col)
+        for ann in annotations:
+            fig.add_annotation(**ann)
+
+    fig.update_layout(
+        title=title, template=TMPL, height=380,
+        margin=dict(l=60, r=60, t=65, b=50),
+    )
+    fig.update_yaxes(autorange="reversed")
+    return fig
+
+
+def _fig_bloch_pair_2q(rho, title="Reduced Qubit States"):
+    """Two Bloch spheres side-by-side for the reduced single-qubit states."""
+    sx2 = np.array([[0, 1], [1, 0]], dtype=complex)
+    sy2 = np.array([[0, -1j], [1j, 0]], dtype=complex)
+    sz2 = np.array([[1, 0], [0, -1]], dtype=complex)
+
+    def _bloch_vec(rho2):
+        return np.array([
+            float(np.real(np.trace(rho2 @ sx2))),
+            float(np.real(np.trace(rho2 @ sy2))),
+            float(np.real(np.trace(rho2 @ sz2))),
+        ])
+
+    rho_A = partial_trace(rho, keep=0)
+    rho_B = partial_trace(rho, keep=1)
+    r_A   = _bloch_vec(rho_A)
+    r_B   = _bloch_vec(rho_B)
+
+    def _sphere_traces(r_vec, color, label):
+        theta = np.linspace(0, 2*np.pi, 60)
+        traces = []
+        for zval in np.linspace(-0.8, 0.8, 5):
+            rv = np.sqrt(max(0, 1 - zval**2))
+            traces.append(go.Scatter3d(
+                x=rv*np.cos(theta), y=rv*np.sin(theta),
+                z=np.full_like(theta, zval),
+                mode='lines', line=dict(color='rgba(150,150,150,0.15)', width=1),
+                showlegend=False, hoverinfo='skip'))
+        for ang in np.linspace(0, np.pi, 7):
+            traces.append(go.Scatter3d(
+                x=np.cos(ang)*np.cos(theta),
+                y=np.sin(ang)*np.cos(theta),
+                z=np.sin(theta),
+                mode='lines', line=dict(color='rgba(150,150,150,0.15)', width=1),
+                showlegend=False, hoverinfo='skip'))
+        for xs, ys, zs, lbl, c in [
+            ([0,1.3],[0,0],[0,0], 'x', '#E63946'),
+            ([0,0],[0,1.3],[0,0], 'y', '#2C7BB6'),
+            ([0,0],[0,0],[0,1.3], 'z', '#6A994E'),
+        ]:
+            traces.append(go.Scatter3d(
+                x=xs, y=ys, z=zs, mode='lines+text',
+                line=dict(color=c, width=2),
+                text=['', lbl], textposition='top center',
+                showlegend=False, hoverinfo='skip'))
+        rx, ry, rz = r_vec
+        rnorm = float(np.linalg.norm(r_vec))
+        traces.append(go.Scatter3d(
+            x=[0, rx], y=[0, ry], z=[0, rz], mode='lines+markers',
+            line=dict(color=color, width=8),
+            marker=dict(size=[0, 8], color=color),
+            name=f'{label}  |r|={rnorm:.3f}'))
+        return traces
+
+    fig = make_subplots(
+        rows=1, cols=2,
+        specs=[[{"type": "scatter3d"}, {"type": "scatter3d"}]],
+        subplot_titles=[
+            f"Qubit A — ρ_A = Tr_B[ρ]  |r|={np.linalg.norm(r_A):.3f}",
+            f"Qubit B — ρ_B = Tr_A[ρ]  |r|={np.linalg.norm(r_B):.3f}",
+        ],
+    )
+    for trace in _sphere_traces(r_A, C_RED,  "A"):
+        fig.add_trace(trace, row=1, col=1)
+    for trace in _sphere_traces(r_B, C_BLUE, "B"):
+        fig.add_trace(trace, row=1, col=2)
+
+    scene_cfg = dict(
+        xaxis=dict(range=[-1.4, 1.4], title='x'),
+        yaxis=dict(range=[-1.4, 1.4], title='y'),
+        zaxis=dict(range=[-1.4, 1.4], title='z'),
+        aspectmode='cube',
+        camera=dict(eye=dict(x=1.4, y=1.2, z=0.8)),
+    )
+    fig.update_layout(
+        title=title, template=TMPL, height=480,
+        scene=scene_cfg, scene2=scene_cfg,
+        margin=dict(l=0, r=0, t=65, b=0),
+    )
+    return fig, float(np.linalg.norm(r_A)), float(np.linalg.norm(r_B))
+
+
+def _fig_bell_fidelities(rho):
+    """Bar chart: fidelity of ρ with each Bell state."""
+    names  = list(BELL_LABELS.keys())
+    labels = [BELL_LABELS[n] for n in names]
+    fids   = []
+    for nm in names:
+        bket = bell_state(nm)
+        brho = np.outer(bket, bket.conj())
+        fids.append(float(np.real(np.trace(brho @ rho))))
+
+    colors = [C_RED, C_BLUE, C_GREEN, C_ORNG]
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        x=labels, y=fids,
+        marker_color=colors,
+        text=[f"{f:.3f}" for f in fids],
+        textposition="outside",
+        width=0.5,
+    ))
+    fig.add_hline(y=0.25, line_dash="dot", line_color=C_GREY,
+                  annotation_text="Max mixed (0.25)", annotation_position="right")
+    fig.update_layout(**_base_layout("Bell State Fidelities", height=340))
+    fig.update_xaxes(title_text="Bell state")
+    fig.update_yaxes(title_text="Fidelity  F(ρ, |Bell⟩)", range=[0, 1.2])
+    return fig
+
+
+def _fig_xx_sweep(angles, concs):
+    """Concurrence vs XX gate angle θ."""
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=angles, y=concs,
+        mode='lines',
+        fill='tozeroy', fillcolor=f'rgba(230,57,70,0.10)',
+        line=dict(color=C_RED, width=2.5),
+        name='Concurrence  C(θ)',
+    ))
+    # Mark maximum
+    idx_max = int(np.argmax(concs))
+    fig.add_trace(go.Scatter(
+        x=[angles[idx_max]], y=[concs[idx_max]], mode='markers',
+        marker=dict(color=C_RED, size=12, symbol='star'),
+        name=f'Max C={concs[idx_max]:.3f} at θ={angles[idx_max]:.3f}',
+    ))
+    fig.add_vline(x=np.pi/2, line_dash="dot", line_color=C_GREY,
+                  annotation_text="θ = π/2", annotation_position="top right")
+    fig.update_layout(**_base_layout(
+        "Entanglement vs XX Gate Angle  —  XX(θ)|00⟩", height=340))
+    fig.update_xaxes(title_text="Gate angle θ (rad)",
+                     tickvals=[0, np.pi/4, np.pi/2, 3*np.pi/4, np.pi],
+                     ticktext=["0", "π/4", "π/2", "3π/4", "π"])
+    fig.update_yaxes(title_text="Concurrence  C", range=[-0.05, 1.15])
+    return fig
+
+
+def _fig_entanglement_evolution(t, ent, title):
+    """Three-panel: concurrence, entanglement entropy, purity."""
+    fig = make_subplots(
+        rows=3, cols=1,
+        shared_xaxes=True,
+        row_heights=[0.38, 0.32, 0.30],
+        subplot_titles=(
+            "Concurrence  C(ρ)",
+            "Entanglement Entropy  S(ρ_A)",
+            "Qubit Purity  Tr(ρ_A²)",
+        ),
+        vertical_spacing=0.08,
+    )
+
+    # Concurrence + EoF
+    fig.add_trace(go.Scatter(x=t, y=ent['concurrence'],
+                             name='Concurrence', fill='tozeroy',
+                             fillcolor='rgba(230,57,70,0.10)',
+                             line=dict(color=C_RED, width=2.5)),
+                  row=1, col=1)
+    fig.add_trace(go.Scatter(x=t, y=ent['entanglement_of_formation'],
+                             name='Entanglement of Formation',
+                             line=dict(color=C_PURP, dash='dash', width=1.5)),
+                  row=1, col=1)
+    fig.add_hline(y=0, line_color=C_GREY, line_width=0.6, row=1, col=1)
+
+    # Entropy
+    fig.add_trace(go.Scatter(x=t, y=ent['entropy_A'],
+                             name='S(ρ_A)', fill='tozeroy',
+                             fillcolor='rgba(44,123,182,0.10)',
+                             line=dict(color=C_BLUE, width=2.2)),
+                  row=2, col=1)
+    fig.add_hline(y=1.0, line_dash='dot', line_color=C_GREY,
+                  annotation_text='1 ebit', annotation_position='right',
+                  row=2, col=1)
+
+    # Purity A and B
+    fig.add_trace(go.Scatter(x=t, y=ent['purity_A'],
+                             name='Purity A', line=dict(color=C_ORNG, width=2)),
+                  row=3, col=1)
+    fig.add_trace(go.Scatter(x=t, y=ent['purity_B'],
+                             name='Purity B',
+                             line=dict(color=C_GREY, dash='dash', width=1.5)),
+                  row=3, col=1)
+    fig.add_hline(y=0.5, line_dash='dot', line_color=C_GREY,
+                  annotation_text='max mixed', annotation_position='right',
+                  row=3, col=1)
+    fig.add_hline(y=1.0, line_dash='dot', line_color=C_GREY,
+                  annotation_text='pure', annotation_position='right',
+                  row=3, col=1)
+
+    fig.update_yaxes(range=[-0.05, 1.15], row=1, col=1)
+    fig.update_yaxes(range=[-0.05, 1.15], row=2, col=1)
+    fig.update_yaxes(range=[0.30, 1.08],  row=3, col=1)
+    fig.update_xaxes(title_text="Time", row=3, col=1)
+    fig.update_layout(
+        title=title, template=TMPL, height=580,
+        hovermode='x unified',
+        margin=dict(l=60, r=20, t=65, b=50),
+        legend=dict(orientation='h', yanchor='bottom', y=1.02,
+                    xanchor='right', x=1),
+    )
+    return fig
+
+
+def _fig_esd(t, conc, purity_A, T1_A, T1_B):
+    """Entanglement sudden death plot: concurrence vs purity on same axes."""
+    T1_mean = (T1_A + T1_B) / 2.0
+    purity_theory = 0.5 + 0.5 * np.exp(-t / T1_mean)
+
+    esd_idx = int(np.argmax(conc < 1e-3))
+    t_esd   = t[esd_idx] if conc[esd_idx] < 1e-3 else None
+
+    fig = make_subplots(rows=2, cols=1, shared_xaxes=True,
+                        row_heights=[0.55, 0.45],
+                        subplot_titles=(
+                            "Concurrence  C(t)  — Sudden Death",
+                            "Single-Qubit Purity  Tr(ρ_A²)",
+                        ),
+                        vertical_spacing=0.10)
+
+    fig.add_trace(go.Scatter(x=t, y=conc, name='Concurrence',
+                             fill='tozeroy', fillcolor='rgba(230,57,70,0.12)',
+                             line=dict(color=C_RED, width=2.5)),
+                  row=1, col=1)
+    if t_esd is not None:
+        fig.add_vline(x=t_esd, line_dash='dash', line_color=C_RED,
+                      annotation_text=f't_ESD ≈ {t_esd:.2f}',
+                      annotation_font_color=C_RED,
+                      annotation_position='top right', row=1, col=1)
+
+    fig.add_trace(go.Scatter(x=t, y=purity_A, name='Purity A (ODE)',
+                             line=dict(color=C_ORNG, width=2.2)),
+                  row=2, col=1)
+    fig.add_trace(go.Scatter(x=t, y=purity_theory,
+                             name=f'½ + ½·e^(-t/T₁)  T₁={T1_mean:.1f}',
+                             line=dict(color=C_GREY, dash='dash', width=1.4)),
+                  row=2, col=1)
+    fig.add_hline(y=0.5, line_dash='dot', line_color=C_GREY,
+                  annotation_text='max mixed', annotation_position='right',
+                  row=2, col=1)
+
+    fig.update_yaxes(range=[-0.05, 1.12], row=1, col=1)
+    fig.update_yaxes(range=[0.35, 1.08], row=2, col=1)
+    fig.update_xaxes(title_text="Time", row=2, col=1)
+    fig.update_layout(
+        title=(f"Entanglement Sudden Death  —  "
+               f"T₁_A={T1_A:.1f}  T₁_B={T1_B:.1f}"),
+        template=TMPL, height=480,
+        hovermode='x unified',
+        margin=dict(l=60, r=20, t=65, b=50),
+        legend=dict(orientation='h', yanchor='bottom', y=1.02,
+                    xanchor='right', x=1),
+    )
+    return fig, t_esd
+
+
+def _fig_corr_vs_local(res):
+    """Concurrence under local dephasing vs correlated ZZ noise."""
+    t = res['t']
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=t, y=res['C_local'],
+                             name='Local dephasing only',
+                             line=dict(color=C_RED, width=2.2)))
+    fig.add_trace(go.Scatter(x=t, y=res['C_correlated'],
+                             name='Correlated ZZ only',
+                             line=dict(color=C_GREEN, width=2.2)))
+    fig.add_trace(go.Scatter(x=t, y=res['C_both'],
+                             name='Both simultaneously',
+                             line=dict(color=C_ORNG, dash='dash', width=1.8)))
+    fig.add_hline(y=1.0, line_dash='dot', line_color=C_GREY,
+                  annotation_text='C = 1 (max entangled)',
+                  annotation_position='right')
+    fig.add_hline(y=0, line_dash='dot', line_color=C_GREY)
+    fig.update_layout(**_base_layout(
+        "Correlated vs Local Dephasing on |Φ+⟩", height=360))
+    fig.update_xaxes(title_text="Time")
+    fig.update_yaxes(title_text="Concurrence  C(ρ)", range=[-0.05, 1.15])
+    return fig
+
+
+# ============================================================================
 # Sidebar
 # ============================================================================
 
@@ -662,113 +1055,173 @@ with st.sidebar:
     experiment = st.selectbox("Experiment type", EXPERIMENTS)
 
     st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
-    st.markdown("**Physical parameters**")
 
-    gamma  = 1.0
-    f0     = st.slider("B₀ frequency f₀ (MHz)", 0.1, 2.0, 0.5, 0.05)
-    omega0 = 2 * np.pi * f0
-    T2     = st.slider("T₂ (µs)", 0.5, 50.0, 10.0, 0.5)
-    T1     = st.slider("T₁ (µs)", T2, 200.0, float(max(T2*3, T2+1.0)), 1.0)
+    is_two_qubit = experiment.startswith("Two-Qubit")
 
-    needs_sigma = experiment in ["Ensemble FID", "FID vs Echo (T₂* comparison)"]
-    sigma = (st.slider("Frequency spread σ (rad/µs)", 0.0, 2.0, 0.3, 0.05)
-             if needs_sigma else 0.0)
+    if not is_two_qubit:
+        # ── Single-qubit parameters ───────────────────────────────────────────
+        st.markdown("**Physical parameters**")
+        gamma  = 1.0
+        f0     = st.slider("B₀ frequency f₀ (MHz)", 0.1, 2.0, 0.5, 0.05)
+        omega0 = 2 * np.pi * f0
+        T2     = st.slider("T₂ (µs)", 0.5, 50.0, 10.0, 0.5)
+        T1     = st.slider("T₁ (µs)", T2, 200.0, float(max(T2*3, T2+1.0)), 1.0)
 
-    needs_tau = experiment in [
-        "Hahn Echo", "CPMG Train", "FID vs Echo (T₂* comparison)"]
-    tau = (st.slider("Half-echo time τ (µs)", 0.1, 30.0, 3.0, 0.1)
-           if needs_tau else 3.0)
+        needs_sigma = experiment in ["Ensemble FID", "FID vs Echo (T₂* comparison)"]
+        sigma = (st.slider("Frequency spread σ (rad/µs)", 0.0, 2.0, 0.3, 0.05)
+                 if needs_sigma else 0.0)
 
-    n_echoes = (st.slider("Number of echoes", 1, 20, 8, 1)
-                if experiment == "CPMG Train" else 8)
+        needs_tau = experiment in [
+            "Hahn Echo", "CPMG Train", "FID vs Echo (T₂* comparison)"]
+        tau = (st.slider("Half-echo time τ (µs)", 0.1, 30.0, 3.0, 0.1)
+               if needs_tau else 3.0)
 
-    if experiment == "Echo Sweep":
-        tau_min = st.slider("τ min (µs)", 0.1, 5.0,  0.5,  0.1)
-        tau_max = st.slider("τ max (µs)", 1.0, 50.0, 20.0, 1.0)
-        n_tau   = st.slider("Sweep points", 10, 200, 60, 10)
+        n_echoes = (st.slider("Number of echoes", 1, 20, 8, 1)
+                    if experiment == "CPMG Train" else 8)
+
+        if experiment == "Echo Sweep":
+            tau_min = st.slider("τ min (µs)", 0.1, 5.0,  0.5,  0.1)
+            tau_max = st.slider("τ max (µs)", 1.0, 50.0, 20.0, 1.0)
+            n_tau   = st.slider("Sweep points", 10, 200, 60, 10)
+        else:
+            tau_min, tau_max, n_tau = 0.5, 20.0, 60
+
+        needs_rabi = experiment in ["Rabi Oscillation", "Density Matrix"]
+        if needs_rabi:
+            st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+            st.markdown("**Drive parameters**")
+            omega_rabi     = st.slider("Rabi frequency Ω (rad/µs)", 0.05, 5.0, 1.0, 0.05)
+            delta_rabi     = st.slider("Detuning Δ (rad/µs)", -5.0, 5.0, 0.0, 0.05)
+            delta_max_chev = st.slider("Chevron Δ range (rad/µs)", 1.0, 10.0, 3.0, 0.5)
+            show_chevron   = st.checkbox("Show chevron plot", value=True)
+            show_res_scan  = st.checkbox("Show resonance scan",
+                                         value=(experiment == "Rabi Oscillation"))
+        else:
+            omega_rabi, delta_rabi = 1.0, 0.0
+            delta_max_chev, show_chevron, show_res_scan = 3.0, False, False
+
+        needs_ramsey = (experiment == "Ramsey Interference")
+        if needs_ramsey:
+            st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+            st.markdown("**Ramsey parameters**")
+            delta_ramsey   = st.slider("Detuning Δ (rad/µs) ", -3.0, 3.0, 0.5, 0.05)
+            T_free_max     = st.slider("Max free evolution T (µs)", 1.0, 100.0,
+                                       float(min(4*T2, 60.0)), 1.0)
+            n_ramsey       = st.slider("Fringe points", 50, 500, 200, 50)
+            n_shots_sens   = st.slider("Shots (sensitivity)", 100, 10000, 1000, 100)
+            show_det_scan  = st.checkbox("Show detuning scan", value=True)
+            run_ramsey_fit = st.checkbox("Fit fringes", value=True)
+        else:
+            delta_ramsey   = 0.5
+            T_free_max     = 20.0
+            n_ramsey       = 200
+            n_shots_sens   = 1000
+            show_det_scan  = False
+            run_ramsey_fit = False
+
+        needs_dm = (experiment == "Density Matrix")
+        if needs_dm:
+            st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+            st.markdown("**Initial state**")
+            rho0_choice = st.selectbox(
+                "Initial state ρ₀",
+                ["ground", "superposition", "mixed_0.5", "mixed_0.0"])
+            show_dm_validation = st.checkbox("Show DM vs Bloch validation", value=True)
+
+        st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+        st.markdown("**Display**")
+        t_max_def = float(max(4*T2, 4*tau if needs_tau else 4*T2))
+        if needs_rabi:
+            oe_est    = np.sqrt(omega_rabi**2 + delta_rabi**2)
+            t_max_def = float(max(t_max_def, 6 * np.pi / max(oe_est, 0.01)))
+        t_max       = st.slider("t_max (µs)", 5.0, 200.0, min(t_max_def, 200.0), 5.0)
+        show_sphere = st.checkbox("Show 3D Bloch sphere", value=False)
+
+        if experiment == "CPMG Train":
+            dt = st.select_slider("Time step dt (µs)",
+                                  [0.005, 0.01, 0.02, 0.05, 0.1], value=0.05)
+            st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+            run_cpmg     = st.button("Run CPMG",   type="primary", width='stretch')
+            run_rabi_btn = run_ramsey_btn = run_dm_btn = False
+        elif experiment == "Rabi Oscillation":
+            dt = 0.05
+            run_cpmg     = False
+            st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+            run_rabi_btn = st.button("Run Rabi",   type="primary", width='stretch')
+            run_ramsey_btn = run_dm_btn = False
+        elif experiment == "Ramsey Interference":
+            dt = 0.05
+            run_cpmg = run_rabi_btn = False
+            st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+            run_ramsey_btn = st.button("Run Ramsey", type="primary", width='stretch')
+            run_dm_btn = False
+        elif experiment == "Density Matrix":
+            dt = 0.05
+            run_cpmg = run_rabi_btn = run_ramsey_btn = False
+            st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+            run_dm_btn = st.button("Run DM Simulation", type="primary", width='stretch')
+        else:
+            dt = 0.05
+            run_cpmg = run_rabi_btn = run_ramsey_btn = run_dm_btn = False
+
     else:
-        tau_min, tau_max, n_tau = 0.5, 20.0, 60
+        # ── Two-qubit parameters ──────────────────────────────────────────────
+        st.markdown("**Bell state / initial state**")
+        bell_choice = st.selectbox(
+            "Starting Bell state",
+            list(BELL_LABELS.keys()),
+            format_func=lambda k: BELL_LABELS[k],
+        )
 
-    # ── Rabi parameters ───────────────────────────────────────────────────────
-    needs_rabi = experiment in ["Rabi Oscillation", "Density Matrix"]
-    if needs_rabi:
-        st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
-        st.markdown("**Drive parameters**")
-        omega_rabi     = st.slider("Rabi frequency Ω (rad/µs)", 0.05, 5.0, 1.0, 0.05)
-        delta_rabi     = st.slider("Detuning Δ (rad/µs)", -5.0, 5.0, 0.0, 0.05)
-        delta_max_chev = st.slider("Chevron Δ range (rad/µs)", 1.0, 10.0, 3.0, 0.5)
-        show_chevron   = st.checkbox("Show chevron plot", value=True)
-        show_res_scan  = st.checkbox("Show resonance scan",
-                                     value=(experiment == "Rabi Oscillation"))
-    else:
-        omega_rabi, delta_rabi = 1.0, 0.0
-        delta_max_chev, show_chevron, show_res_scan = 3.0, False, False
+        if experiment == "Two-Qubit: Bell States & Gates":
+            st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+            st.markdown("**XX gate sweep**")
+            n_xx_angles = st.slider("Sweep resolution", 50, 300, 120, 10)
+            show_bloch_pair  = st.checkbox("Show reduced Bloch spheres", value=True)
+            show_hinton      = st.checkbox("Show Im(ρ) panel", value=True)
 
-    # ── Ramsey parameters ─────────────────────────────────────────────────────
-    needs_ramsey = (experiment == "Ramsey Interference")
-    if needs_ramsey:
-        st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
-        st.markdown("**Ramsey parameters**")
-        delta_ramsey   = st.slider("Detuning Δ (rad/µs) ", -3.0, 3.0, 0.5, 0.05)
-        T_free_max     = st.slider("Max free evolution T (µs)", 1.0, 100.0,
-                                   float(min(4*T2, 60.0)), 1.0)
-        n_ramsey       = st.slider("Fringe points", 50, 500, 200, 50)
-        n_shots_sens   = st.slider("Shots (sensitivity)", 100, 10000, 1000, 100)
-        show_det_scan  = st.checkbox("Show detuning scan", value=True)
-        run_ramsey_fit = st.checkbox("Fit fringes", value=True)
-    else:
-        delta_ramsey   = 0.5
-        T_free_max     = 20.0
-        n_ramsey       = 200
-        n_shots_sens   = 1000
-        show_det_scan  = False
-        run_ramsey_fit = False
+        elif experiment == "Two-Qubit: Noise & Entanglement":
+            st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+            st.markdown("**Qubit A noise**")
+            T1_A   = st.slider("T₁_A", 1.0, 100.0, 15.0, 1.0)
+            T2_A   = st.slider("T₂_A", 0.5, float(2*15), float(min(12.0, 2*15)), 0.5)
 
-    # ── Density matrix parameters ─────────────────────────────────────────────
-    needs_dm = (experiment == "Density Matrix")
-    if needs_dm:
-        st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
-        st.markdown("**Initial state**")
-        rho0_choice = st.selectbox(
-            "Initial state ρ₀",
-            ["ground", "superposition", "mixed_0.5", "mixed_0.0"])
-        show_dm_validation = st.checkbox("Show DM vs Bloch validation", value=True)
+            st.markdown("**Qubit B noise**")
+            T1_B   = st.slider("T₁_B", 1.0, 100.0, 15.0, 1.0)
+            T2_B   = st.slider("T₂_B", 0.5, float(2*15), float(min(12.0, 2*15)), 0.5)
 
-    st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
-    st.markdown("**Display**")
+            st.markdown("**Additional channels**")
+            use_dep = st.checkbox("Local depolarizing", value=False)
+            T_dep   = st.slider("T_dep (both qubits)", 1.0, 100.0, 30.0, 1.0) if use_dep else np.inf
+            use_zz  = st.checkbox("Correlated ZZ dephasing", value=False)
+            T_ZZ    = st.slider("T_ZZ", 1.0, 100.0, 15.0, 1.0) if use_zz else np.inf
 
-    t_max_def = float(max(4*T2, 4*tau if needs_tau else 4*T2))
-    if needs_rabi:
-        oe_est    = np.sqrt(omega_rabi**2 + delta_rabi**2)
-        t_max_def = float(max(t_max_def, 6 * np.pi / max(oe_est, 0.01)))
-    t_max       = st.slider("t_max (µs)", 5.0, 200.0, min(t_max_def, 200.0), 5.0)
-    show_sphere = st.checkbox("Show 3D Bloch sphere", value=False)
+            st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+            st.markdown("**Entanglement sudden death**")
+            show_esd  = st.checkbox("Show ESD demo", value=True)
+            show_corr = st.checkbox("Show correlated vs local comparison", value=True)
+            T2_corr   = st.slider("T₂ (comparison)", 1.0, 50.0, 8.0, 0.5) if show_corr else 8.0
+            T_ZZ_corr = st.slider("T_ZZ (comparison)", 1.0, 50.0, 8.0, 0.5) if show_corr else 8.0
 
-    if experiment == "CPMG Train":
-        dt = st.select_slider("Time step dt (µs)",
-                              [0.005, 0.01, 0.02, 0.05, 0.1], value=0.05)
+            st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+            t_max_2q = st.slider("t_max (simulation units)", 5.0, 100.0, 40.0, 5.0)
+            n_2q     = st.select_slider("ODE steps", [100, 200, 400, 600], value=200)
+
         st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
-        run_cpmg     = st.button("Run CPMG",   type="primary", width='stretch')
-        run_rabi_btn = run_ramsey_btn = run_dm_btn = False
-    elif experiment == "Rabi Oscillation":
-        dt = 0.05
-        run_cpmg     = False
-        st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
-        run_rabi_btn = st.button("Run Rabi",   type="primary", width='stretch')
-        run_ramsey_btn = run_dm_btn = False
-    elif experiment == "Ramsey Interference":
-        dt = 0.05
-        run_cpmg = run_rabi_btn = False
-        st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
-        run_ramsey_btn = st.button("Run Ramsey", type="primary", width='stretch')
-        run_dm_btn = False
-    elif experiment == "Density Matrix":
-        dt = 0.05
-        run_cpmg = run_rabi_btn = run_ramsey_btn = False
-        st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
-        run_dm_btn = st.button("Run DM Simulation", type="primary", width='stretch')
-    else:
-        dt = 0.05
+        if experiment == "Two-Qubit: Bell States & Gates":
+            run_2q_btn = False   # Bell state tab is fully live (no ODE)
+        else:
+            run_2q_btn = st.button("Run Two-Qubit Simulation",
+                                   type="primary", width='stretch')
+
+        # Unused single-qubit vars (keep linters happy)
+        T1 = T2 = omega0 = f0 = sigma = tau = 0.0
+        n_echoes = 8; tau_min = tau_max = n_tau = 0
+        omega_rabi = delta_rabi = delta_max_chev = 1.0
+        delta_ramsey = T_free_max = 0.0; n_ramsey = n_shots_sens = 100
+        show_chevron = show_res_scan = show_det_scan = run_ramsey_fit = False
+        show_sphere = False; t_max = 20.0; dt = 0.05
+        rho0_choice = "ground"; show_dm_validation = False
         run_cpmg = run_rabi_btn = run_ramsey_btn = run_dm_btn = False
 
 
@@ -779,15 +1232,259 @@ with st.sidebar:
 st.markdown("# Spin Coherence Simulator")
 st.caption(
     "Bloch equations  ·  T₁/T₂ relaxation  ·  Pulse sequences  ·  "
-    "Rabi oscillations  ·  Ramsey interference  ·  Density matrix  ·  Fitting")
+    "Rabi oscillations  ·  Ramsey interference  ·  Density matrix  ·  "
+    "Two-qubit entanglement  ·  Fitting")
 st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
 
 tab_sim, tab_fit = st.tabs(["Simulation", "Fitting"])
 
 with tab_sim:
 
+    # ── Two-Qubit: Bell States & Gates ────────────────────────────────────────
+    if experiment == "Two-Qubit: Bell States & Gates":
+
+        psi_bell, rho_bell = prepare_bell_state(bell_choice)
+        summ = entanglement_summary(psi_bell)
+
+        # Metrics row
+        c1, c2, c3, c4, c5 = st.columns(5)
+        c1.metric("Concurrence  C",      f"{summ['concurrence']:.4f}")
+        c2.metric("Entanglement entropy", f"{summ['entanglement_entropy']:.4f}")
+        c3.metric("Negativity  N",        f"{summ['negativity']:.4f}")
+        c4.metric("CHSH value  B",        f"{chsh_value(rho_bell):.3f}",
+                  delta="Bell violation ✓" if chsh_value(rho_bell) > 2 else "no violation")
+        c5.metric("Schmidt rank",         str(summ['schmidt_number']))
+
+        st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+
+        # Density matrix heatmap + Bell fidelities side by side
+        col_dm, col_fid = st.columns([1.4, 1])
+        with col_dm:
+            st.plotly_chart(
+                _fig_dm_heatmap_2q(
+                    rho_bell,
+                    title=f"Density Matrix  ρ  —  {BELL_LABELS[bell_choice]}",
+                    show_imag=show_hinton,
+                ),
+                width='stretch',
+            )
+        with col_fid:
+            st.plotly_chart(_fig_bell_fidelities(rho_bell), width='stretch')
+
+        # Reduced Bloch spheres
+        if show_bloch_pair:
+            fig_bp, r_A, r_B = _fig_bloch_pair_2q(
+                rho_bell,
+                title=f"Reduced Qubit States  —  {BELL_LABELS[bell_choice]}",
+            )
+            st.plotly_chart(fig_bp, width='stretch')
+            rA_col, rB_col, note_col = st.columns([1, 1, 2])
+            rA_col.metric("|r_A| (Bloch radius)", f"{r_A:.4f}",
+                          delta="0 = max entangled" if r_A < 0.01 else None)
+            rB_col.metric("|r_B| (Bloch radius)", f"{r_B:.4f}",
+                          delta="0 = max entangled" if r_B < 0.01 else None)
+            note_col.info(
+                "For a maximally entangled Bell state, both reduced states "
+                "are I/2 — maximally mixed — and appear at the **centre** of "
+                "their Bloch spheres. Tracing out one qubit erases all local "
+                "information; it lives entirely in the correlations."
+            )
+
+        st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+        st.markdown("#### XX Gate Entanglement Sweep")
+        st.caption(
+            "XX(θ)|00⟩ starts separable (θ=0) and reaches maximum entanglement "
+            "at θ=π/2 (Mølmer-Sørensen gate used in trapped-ion hardware)."
+        )
+        angles, concs = _run_xx_sweep(n_xx_angles)
+        st.plotly_chart(_fig_xx_sweep(angles, concs), width='stretch')
+
+        st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+
+        # Entanglement summary table
+        st.markdown("#### Entanglement Measures — All Four Bell States")
+        rows = []
+        for bname, blabel in BELL_LABELS.items():
+            psi_b = bell_state(bname)
+            rho_b = ket_to_dm(psi_b)
+            s = entanglement_summary(psi_b)
+            rows.append({
+                "State":   blabel,
+                "C":       f"{s['concurrence']:.4f}",
+                "E (ebit)": f"{s['entanglement_entropy']:.4f}",
+                "E_F":     f"{s['entanglement_of_formation']:.4f}",
+                "N":       f"{s['negativity']:.4f}",
+                "E_N":     f"{s['log_negativity']:.4f}",
+                "CHSH":    f"{chsh_value(rho_b):.3f}",
+            })
+        st.dataframe(pd.DataFrame(rows), hide_index=True, width=900)
+
+        st.markdown("---")
+        # CSV export of current Bell state DM
+        dm_df = pd.DataFrame(
+            np.abs(rho_bell),
+            index=BASIS_LABELS_2Q,
+            columns=BASIS_LABELS_2Q,
+        )
+        st.download_button(
+            "Download |ρ| as CSV",
+            data=dm_df.to_csv().encode(),
+            file_name=f"dm_{bell_choice}.csv",
+            mime="text/csv",
+        )
+
+    # ── Two-Qubit: Noise & Entanglement ───────────────────────────────────────
+    elif experiment == "Two-Qubit: Noise & Entanglement":
+
+        # Clamp T2 ≤ 2·T1 (user sliders may be out of order)
+        T2_A = min(T2_A, 2.0 * T1_A)
+        T2_B = min(T2_B, 2.0 * T1_B)
+
+        if run_2q_btn:
+            with st.spinner("Integrating two-qubit Lindblad master equation..."):
+                try:
+                    t2q, rho_r, rho_i, ent = _run_2q_noise(
+                        T1_A, T2_A, T1_B, T2_B,
+                        T_dep, T_dep,   # T_dep_A, T_dep_B
+                        T_ZZ,
+                        bell_choice, t_max_2q, n_2q,
+                    )
+                    st.session_state["2q"] = dict(
+                        t=t2q, rho_r=rho_r, rho_i=rho_i, ent=ent,
+                        T1_A=T1_A, T2_A=T2_A, T1_B=T1_B, T2_B=T2_B,
+                        bell=bell_choice, t_max=t_max_2q,
+                    )
+                except Exception as e:
+                    st.error(f"Simulation failed: {e}")
+
+            if show_esd:
+                with st.spinner("Running ESD demo..."):
+                    t_esd_arr, c_esd, pA_esd = _run_esd(
+                        bell_choice, T1_A, T1_B, T2_A, T2_B, t_max_2q, n_2q)
+                    st.session_state["esd"] = dict(
+                        t=t_esd_arr, conc=c_esd, purity_A=pA_esd,
+                        T1_A=T1_A, T1_B=T1_B,
+                    )
+
+            if show_corr:
+                with st.spinner("Running correlated vs local dephasing comparison..."):
+                    res_corr = _run_correlated_comparison(
+                        T2_corr, T_ZZ_corr, t_max_2q, n_2q)
+                    st.session_state["corr"] = res_corr
+
+        if "2q" not in st.session_state:
+            st.info("Configure noise parameters and press **Run Two-Qubit Simulation**.")
+        else:
+            r   = st.session_state["2q"]
+            ent = r["ent"]
+            t   = r["t"]
+
+            # Reconstruct rho at t=0 and t=final
+            rho_0   = r["rho_r"][0]  + 1j * r["rho_i"][0]
+            rho_end = r["rho_r"][-1] + 1j * r["rho_i"][-1]
+
+            C_init  = float(ent['concurrence'][0])
+            C_final = float(ent['concurrence'][-1])
+            E_init  = float(ent['entropy_A'][0])
+            E_final = float(ent['entropy_A'][-1])
+
+            # Find ESD time
+            esd_arr  = np.argmax(ent['concurrence'] < 1e-3)
+            t_esd_v  = float(t[esd_arr]) if ent['concurrence'][esd_arr] < 1e-3 else None
+            esd_label = f"{t_esd_v:.2f}" if t_esd_v else "—"
+
+            c1, c2, c3, c4, c5 = st.columns(5)
+            c1.metric("C (t=0)",     f"{C_init:.4f}")
+            c2.metric("C (final)",   f"{C_final:.4f}",
+                      delta=f"Δ = {C_final - C_init:.4f}")
+            c3.metric("S(ρ_A) init", f"{E_init:.4f}")
+            c4.metric("S(ρ_A) end",  f"{E_final:.4f}")
+            c5.metric("t_ESD",       esd_label,
+                      delta="sudden death" if t_esd_v else "no ESD detected")
+
+            st.plotly_chart(
+                _fig_entanglement_evolution(
+                    t, ent,
+                    title=(
+                        f"Entanglement Dynamics  —  {BELL_LABELS[r['bell']]}  ·  "
+                        f"T₁_A={r['T1_A']:.1f}  T₂_A={r['T2_A']:.1f}  "
+                        f"T₁_B={r['T1_B']:.1f}  T₂_B={r['T2_B']:.1f}"
+                    ),
+                ),
+                width='stretch',
+            )
+
+            # Final density matrix heatmap
+            col_init, col_fin = st.columns(2)
+            with col_init:
+                st.plotly_chart(
+                    _fig_dm_heatmap_2q(rho_0,   title="ρ at t = 0",     show_imag=True),
+                    width='stretch')
+            with col_fin:
+                st.plotly_chart(
+                    _fig_dm_heatmap_2q(rho_end, title="ρ at t = final", show_imag=True),
+                    width='stretch')
+
+            # Reduced Bloch spheres for final state
+            fig_bp, r_A_f, r_B_f = _fig_bloch_pair_2q(
+                rho_end, title="Reduced States at Final Time")
+            st.plotly_chart(fig_bp, width='stretch')
+
+        # ESD demo
+        if "esd" in st.session_state and show_esd:
+            st.markdown("---")
+            st.markdown("#### Entanglement Sudden Death")
+            st.caption(
+                "Entanglement reaches zero in **finite** time under amplitude "
+                "damping — even though the individual qubit purity is still > 0.5. "
+                "This is qualitatively different from classical correlations."
+            )
+            e = st.session_state["esd"]
+            fig_esd, t_esd_val = _fig_esd(
+                e["t"], e["conc"], e["purity_A"], e["T1_A"], e["T1_B"])
+            st.plotly_chart(fig_esd, width='stretch')
+            if t_esd_val:
+                st.success(
+                    f"ESD detected at t ≈ **{t_esd_val:.3f}** — "
+                    f"concurrence drops to zero while single-qubit purity "
+                    f"≈ {0.5 + 0.5*np.exp(-t_esd_val/((e['T1_A']+e['T1_B'])/2)):.3f} "
+                    f"(still > 0.5)."
+                )
+
+        # Correlated vs local comparison
+        if "corr" in st.session_state and show_corr:
+            st.markdown("---")
+            st.markdown("#### Correlated vs Local Dephasing")
+            st.caption(
+                "|Φ+⟩ = (|00⟩+|11⟩)/√2 is an **eigenstate** of σ_z⊗σ_z, so "
+                "correlated ZZ noise leaves its concurrence exactly at 1. "
+                "Local (independent) dephasing destroys it. "
+                "This reveals that noise *structure*, not just strength, determines "
+                "which states decohere."
+            )
+            st.plotly_chart(_fig_corr_vs_local(st.session_state["corr"]),
+                            width='stretch')
+
+        if "2q" in st.session_state:
+            st.markdown("---")
+            r = st.session_state["2q"]
+            st.download_button(
+                "Download entanglement trajectory as CSV",
+                data=pd.DataFrame({
+                    "t":                        r["t"],
+                    "concurrence":              r["ent"]["concurrence"],
+                    "entanglement_of_formation": r["ent"]["entanglement_of_formation"],
+                    "entropy_A":                r["ent"]["entropy_A"],
+                    "negativity":               r["ent"]["negativity"],
+                    "purity_A":                 r["ent"]["purity_A"],
+                    "purity_B":                 r["ent"]["purity_B"],
+                }).to_csv(index=False).encode(),
+                file_name="two_qubit_entanglement.csv",
+                mime="text/csv",
+            )
+
     # ── CPMG ─────────────────────────────────────────────────────────────────
-    if experiment == "CPMG Train":
+    elif experiment == "CPMG Train":
         if run_cpmg:
             with st.spinner("Running CPMG simulation..."):
                 t_cp, Mx_cp, My_cp, Mz_cp, echo_times = _run_cpmg(
@@ -881,7 +1578,7 @@ with tab_sim:
                 T_arr, P_arr = _run_ramsey_sweep(
                     delta_ramsey, T1, T2, T_free_max, n_ramsey)
                 fit_params = fit_errors = P_fitted = None
-                T2_star_fit = T2  # fallback
+                T2_star_fit = T2
                 if run_ramsey_fit:
                     try:
                         fit_params, fit_errors, P_fitted = fit_ramsey_fringes(
@@ -903,7 +1600,6 @@ with tab_sim:
             r = st.session_state["ramsey"]
             T2sf = r["T2_star_fit"]
             sens = ramsey_sensitivity(T2sf, n_shots_sens)
-
             c1, c2, c3, c4 = st.columns(4)
             c1.metric("Δ (rad/µs)",   f"{r['delta']:.3f}")
             c2.metric("T₂ (µs)",      f"{r['T2']:.1f}")
@@ -911,27 +1607,23 @@ with tab_sim:
             c4.metric("δf_min (MHz)",
                       f"{sens*1e-6:.4f}",
                       delta=f"N={n_shots_sens} shots")
-
             st.plotly_chart(
                 _fig_ramsey_fringes(
                     r["T_arr"], r["P_arr"],
                     r["fit_params"] or {}, r["fit_errors"] or {},
                     r["P_fitted"], r["delta"], r["T2"], T2sf),
                 width='stretch')
-
             if show_det_scan:
                 T_fixed = float(T_free_max / 4)
                 st.plotly_chart(
                     _fig_ramsey_detuning_scan(T2, T_fixed, delta_range=5.0),
                     width='stretch')
-
             if r["fit_params"]:
                 st.markdown("**Fit parameters**")
                 fc = st.columns(len(r["fit_params"]))
                 for col, (pname, pval) in zip(fc, r["fit_params"].items()):
                     col.metric(pname, f"{pval:.4f}",
                                delta=f"±{r['fit_errors'].get(pname,0):.4f}")
-
             st.markdown("---")
             st.download_button(
                 "Download Ramsey fringes as CSV",
@@ -944,13 +1636,11 @@ with tab_sim:
 
     # ── Density Matrix ────────────────────────────────────────────────────────
     elif experiment == "Density Matrix":
-        # Chevron is always live (analytic)
         if show_chevron:
             st.plotly_chart(
                 _fig_rabi_chevron(omega_rabi, delta_max_chev, t_max,
                                   current_delta=delta_rabi),
                 width='stretch')
-
         if run_dm_btn:
             with st.spinner("Running density matrix simulation..."):
                 H       = hamiltonian_rotating(delta_rabi, omega_rabi)
@@ -961,7 +1651,6 @@ with tab_sim:
                     t=t_dm, rx=rx, ry=ry, rz=rz, pur=pur,
                     omega_rabi=omega_rabi, delta=delta_rabi, T1=T1, T2=T2,
                     rho0_tag=rho0_choice)
-
                 if show_dm_validation:
                     t_val, bloch_dm_val, max_err = _run_dm_validation(
                         omega_rabi, delta_rabi, T1, T2, t_max)
@@ -973,12 +1662,9 @@ with tab_sim:
             st.info("Configure parameters and press **Run DM Simulation**.")
         else:
             r = st.session_state["dm"]
-
-            # Key metrics from final state
             rho_final = bloch_to_dm(np.array([r["rx"][-1], r["ry"][-1], r["rz"][-1]]))
             P_gnd, P_exc_dm = population(rho_final)
             pur_final = float(r["pur"][-1])
-
             c1, c2, c3, c4 = st.columns(4)
             c1.metric("Ω (rad/µs)",     f"{r['omega_rabi']:.3f}")
             c2.metric("Δ (rad/µs)",     f"{r['delta']:.3f}")
@@ -986,7 +1672,6 @@ with tab_sim:
                       delta="pure" if pur_final > 0.99 else "mixed")
             c4.metric("P↑ (final)",     f"{P_exc_dm:.4f}",
                       delta=f"ρ₀ = {r['rho0_tag']}")
-
             st.plotly_chart(
                 _fig_dm_bloch(
                     r["t"], r["rx"], r["ry"], r["rz"], r["pur"],
@@ -994,13 +1679,11 @@ with tab_sim:
                     f"Density Matrix  Ω={r['omega_rabi']:.2f}  "
                     f"Δ={r['delta']:.2f}  ρ₀={r['rho0_tag']}"),
                 width='stretch')
-
             if show_sphere:
                 st.plotly_chart(
                     _fig_bloch_sphere_3d(r["rx"], r["ry"], r["rz"],
                                          "Bloch Sphere — Density Matrix"),
                     width='stretch')
-
             if "dm_val" in st.session_state:
                 v = st.session_state["dm_val"]
                 st.plotly_chart(
@@ -1013,7 +1696,6 @@ with tab_sim:
                 else:
                     st.warning(f"DM vs Bloch ODE max error = {v['max_err']:.2e} "
                                f"— check T₂ ≤ T₁ constraint.")
-
             st.markdown("---")
             st.download_button(
                 "Download density matrix simulation as CSV",
@@ -1029,7 +1711,7 @@ with tab_sim:
 
     # ── All analytic experiments ──────────────────────────────────────────────
     else:
-        Mx = My = Mz = None  # safe init
+        Mx = My = Mz = None
 
         if experiment == "Single Spin (Bloch)":
             t, Mx, My, Mz = _analytic_single_spin(omega0, T1, T2, t_max)
@@ -1283,6 +1965,8 @@ with tab_fit:
 
 
 st.markdown("---")
-st.caption("Spin Coherence Simulator  ·  "
-           "Bloch equations  T₁/T₂  Pulse sequences  Ensemble  "
-           "Rabi  Ramsey  Density Matrix  Fitting")
+st.caption(
+    "Spin Coherence Simulator  ·  "
+    "Bloch equations  T₁/T₂  Pulse sequences  Ensemble  "
+    "Rabi  Ramsey  Density Matrix  Two-Qubit Entanglement  Fitting"
+)

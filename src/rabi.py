@@ -13,7 +13,7 @@ Hamiltonian becomes:
     H_rot = (ℏΔ/2)σz + (ℏΩ/2)σx
 
 where Δ = ω - ω₀ is the detuning.  This maps exactly onto the Bloch
-equations with an effective field (Ω, 0, Δ) — no explicit time
+equations with an effective field (Ω, 0, Δ) - no explicit time
 dependence remains.
 
 Rotating-frame Bloch equations (with T₁, T₂ relaxation):
@@ -38,7 +38,7 @@ from scipy.integrate import solve_ivp
 
 
 # ============================================================================
-# ODE solver — full Rabi dynamics with relaxation
+# ODE solver - full Rabi dynamics with relaxation
 # ============================================================================
 
 def run_rabi(
@@ -51,7 +51,7 @@ def run_rabi(
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Solve the rotating-frame Bloch equations for a driven spin.
 
-    The spin starts in the ground state M = (0, 0, 1) — fully aligned
+    The spin starts in the ground state M = (0, 0, 1) - fully aligned
     with +z (Mz = +1 corresponds to |↑⟩, the low-energy eigenstate).
     The drive field Ω tips the spin, producing Rabi oscillations.
 
@@ -88,7 +88,7 @@ def run_rabi(
       Mz = -1  →  P↑ = 1   (excited state, fully up / inverted)
     """
     if T2 > T1:
-        raise ValueError(f"T2 ({T2}) cannot exceed T1 ({T1}) — unphysical")
+        raise ValueError(f"T2 ({T2}) cannot exceed T1 ({T1}) - unphysical")
     if omega_rabi < 0:
         raise ValueError(f"omega_rabi must be non-negative, got {omega_rabi}")
     if t_max <= 0:
@@ -118,7 +118,7 @@ def run_rabi(
 
 
 # ============================================================================
-# Analytic solutions (no relaxation) — exact closed form
+# Analytic solutions (no relaxation) - exact closed form
 # ============================================================================
 
 def analytic_rabi_population(
@@ -206,7 +206,7 @@ def pi_pulse_time(omega_rabi: float, delta: float) -> float:
     """
     omega_eff = np.sqrt(omega_rabi**2 + delta**2)
     if omega_eff == 0:
-        raise ValueError("omega_eff is zero — drive and detuning are both zero")
+        raise ValueError("omega_eff is zero - drive and detuning are both zero")
     return np.pi / omega_eff
 
 

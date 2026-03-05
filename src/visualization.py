@@ -168,7 +168,7 @@ def animate_bloch_trajectory(
     Parameters
     ----------
     Mx, My, Mz : Bloch components from core.bloch_precession()
-    stride     : Downsample factor — render every Nth point (default 4)
+    stride     : Downsample factor - render every Nth point (default 4)
     interval   : Milliseconds between frames (default 30)
     title      : Animation title
     save_path  : If given, save as GIF (writer='pillow') or MP4 ('ffmpeg')

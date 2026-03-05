@@ -1,5 +1,5 @@
 """
-gates.py — Single- and two-qubit quantum gates.
+gates.py - Single- and two-qubit quantum gates.
 ================================================
 
 All gates are exact unitary matrices in the computational basis

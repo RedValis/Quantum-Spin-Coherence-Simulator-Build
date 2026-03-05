@@ -89,7 +89,7 @@ _, Mx_s, My_s, Mz_s = simulate_bloch(
 
 p3 = os.path.join(OUT, "prototype3_bloch_sphere.png")
 plot_bloch_sphere_trajectory(Mx_s, My_s, Mz_s,
-    title=rf"Bloch Sphere — $T_1$={T1_s}, $T_2$={T2_s} µs",
+    title=rf"Bloch Sphere - $T_1$={T1_s}, $T_2$={T2_s} µs",
     save_path=p3)
 print(f"  Saved → {p3}")
 
@@ -116,7 +116,7 @@ ax.axvline(T1_r * np.log(2), color="#457B9D", lw=1.0, ls=":",
            label=rf"$t_{{null}} = T_1\ln 2 = {T1_r*np.log(2):.2f}$ µs")
 ax.set_xlabel("Time (µs)", fontsize=12)
 ax.set_ylabel(r"$M_z(t)$", fontsize=12)
-ax.set_title(rf"Inversion Recovery — $M_z(0)=-M_0$, $T_1$={T1_r} µs", fontsize=13, fontweight="bold")
+ax.set_title(rf"Inversion Recovery - $M_z(0)=-M_0$, $T_1$={T1_r} µs", fontsize=13, fontweight="bold")
 ax.legend(fontsize=9, framealpha=0.85)
 ax.grid(True, ls="--", alpha=0.35)
 ax.set_facecolor("#F9F9F9")

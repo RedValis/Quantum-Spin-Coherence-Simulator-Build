@@ -1,7 +1,7 @@
 """
 examples/run_prototype4.py
 ==========================
-Demonstrates Prototype 4: pulse sequences — Hahn echo, CPMG, echo sweeps.
+Demonstrates Prototype 4: pulse sequences - Hahn echo, CPMG, echo sweeps.
 
 Generates four output files:
   1. prototype4_hahn_echo.png       - single Hahn echo waveform
@@ -90,7 +90,7 @@ fig.savefig(p1, dpi=150, bbox_inches="tight")
 print(f"  Saved → {p1}")
 
 # -----------------------------------------------------------------------------
-# Plot 2: Echo sweep — amplitude vs 2τ
+# Plot 2: Echo sweep - amplitude vs 2τ
 # -----------------------------------------------------------------------------
 tau_values  = np.linspace(0.5, 25.0, 30)
 two_tau, amps = sweep_echo_amplitude(gamma, B, T1, T2, M0, tau_values, dt=dt)
@@ -114,7 +114,7 @@ ax2.axhline(1/np.e, color="#888888", lw=1.0, ls="--", alpha=0.6,
             label=r"$1/e$")
 ax2.set_xlabel(r"Echo time  $2\tau$  (µs)", fontsize=12)
 ax2.set_ylabel("Echo amplitude", fontsize=12)
-ax2.set_title(rf"Echo Amplitude vs $2\tau$  — Hahn Echo T₂ Measurement",
+ax2.set_title(rf"Echo Amplitude vs $2\tau$  - Hahn Echo T₂ Measurement",
               fontsize=13, fontweight="bold")
 ax2.legend(fontsize=9, framealpha=0.85)
 ax2.grid(True, ls="--", alpha=0.35)
@@ -178,7 +178,7 @@ fig3.savefig(p3, dpi=150, bbox_inches="tight")
 print(f"\n  Saved → {p3}")
 
 # -----------------------------------------------------------------------------
-# Plot 4: Bloch sphere — Hahn echo refocusing trajectory
+# Plot 4: Bloch sphere - Hahn echo refocusing trajectory
 # -----------------------------------------------------------------------------
 tau_s = 3.0
 t_s, Mx_s, My_s, Mz_s = hahn_echo_sequence(
@@ -187,7 +187,7 @@ t_s, Mx_s, My_s, Mz_s = hahn_echo_sequence(
 p4 = os.path.join(OUT, "prototype4_bloch_sphere_echo.png")
 plot_bloch_sphere_trajectory(
     Mx_s, My_s, Mz_s,
-    title=rf"Bloch Sphere — Hahn Echo ($\tau$={tau_s} µs)",
+    title=rf"Bloch Sphere - Hahn Echo ($\tau$={tau_s} µs)",
     save_path=p4)
 print(f"  Saved → {p4}")
 

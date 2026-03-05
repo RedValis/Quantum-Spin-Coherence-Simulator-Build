@@ -8,7 +8,7 @@ Prototype 1  -  Pure transverse coherence decay:
 Prototype 2  -  Bloch vector + Larmor precession (analytic):
     Mx(t) = M0 * cos(ω₀ t) * [exp(-t/T2)]
     My(t) = M0 * sin(ω₀ t) * [exp(-t/T2)]
-    Mz(t) = Mz0  (constant — no T1 in P2)
+    Mz(t) = Mz0  (constant - no T1 in P2)
 
 Prototype 3  -  Full Bloch equations (numerical ODE, T1 + T2):
     dMx/dt = +ω₀·My  -  Mx/T2
@@ -432,7 +432,7 @@ def bloch_rhs(
 
     Parameters
     ----------
-    t     : float        current time (unused — autonomous ODE, required by solve_ivp)
+    t     : float        current time (unused - autonomous ODE, required by solve_ivp)
     M     : (3,) array   current magnetisation [Mx, My, Mz]
     gamma : float        gyromagnetic ratio (rad / [time·field])
     B     : (3,) array   magnetic field vector [Bx, By, Bz]
@@ -447,7 +447,7 @@ def bloch_rhs(
     Mx, My, Mz = M
     Bx, By, Bz = B
 
-    # M x B  (full 3-D cross product — works for any field direction)
+    # M x B  (full 3-D cross product - works for any field direction)
     cross_x = My * Bz - Mz * By
     cross_y = Mz * Bx - Mx * Bz
     cross_z = Mx * By - My * Bx
@@ -483,7 +483,7 @@ def simulate_bloch(
     M_init : (3,) array-like
         Initial magnetisation [Mx0, My0, Mz0].
         Typical: [1, 0, 0]  (spin tipped to x after pi/2 pulse)
-                 [0, 0, 1]  (equilibrium — should stay there)
+                 [0, 0, 1]  (equilibrium - should stay there)
     gamma  : float
         Gyromagnetic ratio.  For normalised units (omega0 = gamma * B0)
         use gamma=1 and set B0 = omega0 directly.
@@ -524,7 +524,7 @@ def simulate_bloch(
     if T2 <= 0:
         raise ValueError(f"T2 must be positive, got {T2}")
     if T2 > T1:
-        raise ValueError(f"T2 ({T2}) cannot exceed T1 ({T1}) — unphysical")
+        raise ValueError(f"T2 ({T2}) cannot exceed T1 ({T1}) - unphysical")
     if t_max <= 0:
         raise ValueError(f"t_max must be positive, got {t_max}")
     if dt <= 0:
@@ -576,8 +576,8 @@ def plot_bloch_relaxation(
 
     Panels
     ------
-    Left   : Mx(t) and My(t) — transverse components with T2 envelope
-    Centre : Mz(t) — longitudinal recovery toward M0 with T1 annotation
+    Left   : Mx(t) and My(t) - transverse components with T2 envelope
+    Centre : Mz(t) - longitudinal recovery toward M0 with T1 annotation
     Right  : |M_perp|(t) vs exp(-t/T2) overlay
 
     Chosen layout emphasises the *two timescales* (T1 vs T2) side by side.

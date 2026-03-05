@@ -166,7 +166,7 @@ def simulate_ensemble_hahn_echo(
     gamma: float = 1.0,
     seed: Optional[int] = None,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """Simulate ensemble Hahn echo — static inhomogeneity is refocused.
+    """Simulate ensemble Hahn echo - static inhomogeneity is refocused.
 
     Each spin runs through the full π/2 → τ → π → τ sequence at its own
     frequency.  After the π pulse, each spin's accumulated phase is reversed,

@@ -1,5 +1,5 @@
 """
-src/two_qubit — Phase 3: Two-Qubit & Entanglement
+src/two_qubit - Phase 3: Two-Qubit & Entanglement
 ==================================================
 
 Sub-modules

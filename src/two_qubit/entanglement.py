@@ -1,5 +1,5 @@
 """
-entanglement.py — Entanglement measures for two-qubit systems.
+entanglement.py - Entanglement measures for two-qubit systems.
 ==============================================================
 
 A bipartite state ρ_AB is *entangled* if it cannot be written as a
@@ -21,7 +21,7 @@ Measures implemented
    Ranges from 0 (product state) to 1 ebit (maximally entangled Bell state).
    Only defined for pure states; use concurrence for mixed states.
 
-4. Concurrence  C(ρ) — Wootters 1998
+4. Concurrence  C(ρ) - Wootters 1998
    The concurrence is defined for *mixed* two-qubit states and provides
    a closed-form entanglement of formation formula.  For pure states:
        C(|ψ⟩) = |⟨ψ|ψ̃⟩|  where |ψ̃⟩ = (σy⊗σy)|ψ*⟩
@@ -32,7 +32,7 @@ Measures implemented
    Schmidt rank=1 ↔ separable pure state.
    Schmidt coefficients λ_k (non-negative, sum of squares = 1).
 
-6. Negativity  N(ρ) — Vidal & Werner 2002
+6. Negativity  N(ρ) - Vidal & Werner 2002
    N(ρ) = (‖ρ^{T_B}‖₁ - 1) / 2
    where ρ^{T_B} is the partial transpose.  N>0 is sufficient (but not
    always necessary) for entanglement (PPT criterion).
@@ -101,7 +101,7 @@ def partial_trace(rho: np.ndarray, keep: int) -> np.ndarray:
 def partial_trace_clean(rho: np.ndarray, keep: int) -> np.ndarray:
     """Clean partial trace using explicit index contraction.
 
-    Avoids the reshape gymnastics with a direct loop — clearer physics.
+    Avoids the reshape gymnastics with a direct loop - clearer physics.
     Identical output to partial_trace() but easier to verify.
     """
     rho = np.asarray(rho, dtype=complex)
@@ -231,7 +231,7 @@ def entanglement_entropy(psi: np.ndarray) -> float:
 
 
 # ============================================================================
-# Concurrence (Wootters 1998) — works for mixed states
+# Concurrence (Wootters 1998) - works for mixed states
 # ============================================================================
 
 def concurrence(rho: np.ndarray) -> float:
@@ -254,7 +254,7 @@ def concurrence(rho: np.ndarray) -> float:
 
     Values
     ------
-    C = 0 : separable (not necessarily for mixed states — necessary but
+    C = 0 : separable (not necessarily for mixed states - necessary but
             not sufficient condition via Peres-Horodecki)
     C = 1 : maximally entangled
     C ∈ (0,1) : partially entangled
@@ -275,7 +275,7 @@ def concurrence(rho: np.ndarray) -> float:
     # Spin-flipped density matrix
     rho_tilde = sysy @ rho.conj() @ sysy
 
-    # R = ρ · ρ̃  — eigenvalues are real and non-negative
+    # R = ρ · ρ̃  - eigenvalues are real and non-negative
     R = rho @ rho_tilde
 
     # Eigenvalues of R (may be complex due to numerics; take real part)
