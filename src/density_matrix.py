@@ -3,7 +3,7 @@ density_matrix.py - Open quantum system evolution via density matrix.
 ======================================================================
 
 Moves from the Bloch vector (a classical 3-vector) to the density matrix
-(a 2×2 complex Hermitian operator), which is the proper quantum mechanical
+(a 2-2 complex Hermitian operator), which is the proper quantum mechanical
 description of a spin-½ system.
 
 State representation
@@ -171,7 +171,7 @@ class NoiseModel:
 
         Returns
         -------
-        ops : list of (2×2 complex ndarray, float rate)
+        ops : list of (2-2 complex ndarray, float rate)
 
         Note on amplitude damping operator
         ------------------------------------

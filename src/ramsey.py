@@ -9,13 +9,13 @@ being driven continuously.
 
 Sequence
 --------
-1. π/2 pulse  - tips spin from |↑⟩ to equator (+x axis in rotating frame)
-2. Free evolution for time T  - spin precesses at detuning Δ, dephases at T₂*
-3. π/2 pulse  - maps accumulated phase onto population (Mz)
+1. π/2 pulse  — tips spin from |↑⟩ to equator (+x axis in rotating frame)
+2. Free evolution for time T  — spin precesses at detuning Δ, dephases at T₂*
+3. π/2 pulse  — maps accumulated phase onto population (Mz)
 
 Signal
 ------
-    P↑(T) = ½ · (1 - cos(Δ·T) · exp(-T/T₂*))
+    P↑(T) = ½ · (1 − cos(Δ·T) · exp(−T/T₂*))
 
 The cosine oscillation vs free evolution time T gives "Ramsey fringes".
 Fringe frequency = Δ/(2π), so measuring fringe frequency gives Δ precisely.
@@ -50,7 +50,7 @@ def analytic_ramsey_population(
 ) -> np.ndarray:
     """Analytic Ramsey fringe signal with Gaussian T₂* envelope.
 
-    P↑(T) = offset + (contrast/2) · cos(Δ·T) · exp(-T/T₂*)
+    P↑(T) = offset + (contrast/2) · cos(Δ·T) · exp(−T/T₂*)
 
     For a pure state starting in |↑⟩ with ideal π/2 pulses:
         offset   = 0.5
@@ -59,10 +59,10 @@ def analytic_ramsey_population(
     Parameters
     ----------
     T_free   : free evolution time array
-    delta    : detuning Δ = ω_drive - ω₀  (rad / time_unit)
+    delta    : detuning Δ = ω_drive − ω₀  (rad / time_unit)
     T2_star  : effective coherence time (includes inhomogeneous broadening)
-    contrast : fringe visibility in [0, 1]  (default 1.0 - ideal pulses)
-    offset   : signal baseline  (default 0.5 - equal superposition)
+    contrast : fringe visibility in [0, 1]  (default 1.0 — ideal pulses)
+    offset   : signal baseline  (default 0.5 — equal superposition)
 
     Returns
     -------
@@ -73,7 +73,7 @@ def analytic_ramsey_population(
 
 
 # ============================================================================
-# ODE solver - full Ramsey with T₁, T₂, arbitrary pulse imperfections
+# ODE solver — full Ramsey with T₁, T₂, arbitrary pulse imperfections
 # ============================================================================
 
 def _bloch_free(t, M, delta, T1, T2):
@@ -90,7 +90,7 @@ def _apply_pi2_pulse(M: np.ndarray, axis: str = 'y') -> np.ndarray:
     """Instantaneous π/2 rotation in the rotating frame.
 
     Default axis='y' tips +z → +x  (standard Ramsey preparation).
-    Second pulse axis='y' maps +x → -z, -y → -z (converts phase → population).
+    Second pulse axis='y' maps +x → −z, −y → −z (converts phase → population).
     """
     Mx, My, Mz = M
     if axis == 'y':
@@ -121,7 +121,7 @@ def run_ramsey(
 
     Parameters
     ----------
-    delta      : detuning Δ = ω_drive - ω₀  (rad / time_unit)
+    delta      : detuning Δ = ω_drive − ω₀  (rad / time_unit)
     T1         : longitudinal relaxation time
     T2         : transverse relaxation time (T2 ≤ T1)
     T_free     : free evolution duration
@@ -143,7 +143,7 @@ def run_ramsey(
     # Ground state |↑⟩ = (0, 0, 1)
     M0 = np.array([0.0, 0.0, 1.0])
 
-    # First π/2 pulse - tips to equator
+    # First π/2 pulse — tips to equator
     M1 = _apply_pi2_pulse(M0, axis=pulse1_axis)
 
     # Free evolution
@@ -164,7 +164,7 @@ def run_ramsey(
     t_free = sol.t
     Mx_free, My_free, Mz_free = sol.y
 
-    # Second π/2 pulse - convert phase to population
+    # Second π/2 pulse — convert phase to population
     M_end = _apply_pi2_pulse(
         np.array([Mx_free[-1], My_free[-1], Mz_free[-1]]),
         axis=pulse2_axis)
@@ -187,7 +187,7 @@ def sweep_ramsey(
 ) -> Tuple[np.ndarray, np.ndarray]:
     """Sweep free evolution time and record P↑ after second π/2 pulse.
 
-    This generates the Ramsey fringe pattern - the observable that atomic
+    This generates the Ramsey fringe pattern — the observable that atomic
     clocks and quantum sensors actually measure.
 
     Parameters
@@ -207,18 +207,18 @@ def sweep_ramsey(
 
     for i, T_f in enumerate(T_free_arr):
         _, _, _, Mz_out = run_ramsey(delta, T1, T2, T_f, n_points=200)
-        # P↑ = (1 - Mz_final) / 2  - last point is post-second-pulse readout
+        # P↑ = (1 - Mz_final) / 2  — last point is post-second-pulse readout
         P_up[i] = (1.0 - Mz_out[-1]) / 2.0
 
     return T_free_arr, P_up
 
 
 # ============================================================================
-# Fringe fitting - extract Δ and T₂* from measured fringes
+# Fringe fitting — extract Δ and T₂* from measured fringes
 # ============================================================================
 
 def _ramsey_model(T_free, delta_fit, T2_star, contrast, offset):
-    """Curve-fit model: P↑ = offset + (contrast/2)·cos(Δ·T)·exp(-T/T₂*)."""
+    """Curve-fit model: P↑ = offset + (contrast/2)·cos(Δ·T)·exp(−T/T₂*)."""
     return offset + (contrast / 2) * np.cos(delta_fit * T_free) * np.exp(-T_free / T2_star)
 
 
@@ -264,7 +264,7 @@ def fit_ramsey_fringes(
 
 
 # ============================================================================
-# Detuning sensitivity - the key figure of merit for sensing
+# Detuning sensitivity — the key figure of merit for sensing
 # ============================================================================
 
 def ramsey_sensitivity(
@@ -288,3 +288,26 @@ def ramsey_sensitivity(
     delta_f_min : minimum detectable frequency shift
     """
     return 1.0 / (2 * np.pi * T2_star * np.sqrt(n_shots))
+
+def ramsey_detuning_scan(
+    T2: float, T_free: float, delta_range: float, n: int = 500
+):
+    """Ramsey spectroscopy: P↑ vs detuning at fixed free-evolution time.
+
+    P↑(Δ) = 0.5 + 0.5 · cos(Δ · T) · exp(-T / T₂)
+
+    Parameters
+    ----------
+    T2          : coherence time (µs)
+    T_free      : fixed free-evolution time (µs)
+    delta_range : sweep half-range (rad/µs)
+    n           : number of detuning points
+
+    Returns
+    -------
+    deltas : np.ndarray   detuning values (rad/µs)
+    P      : np.ndarray   P↑ at each detuning
+    """
+    deltas = np.linspace(-delta_range, delta_range, n)
+    P      = 0.5 + 0.5 * np.cos(deltas * T_free) * np.exp(-T_free / T2)
+    return deltas, P

@@ -1,11 +1,11 @@
 """
-gates.py - Single- and two-qubit quantum gates.
+gates.py — Single- and two-qubit quantum gates.
 ================================================
 
 All gates are exact unitary matrices in the computational basis
 |00⟩, |01⟩, |10⟩, |11⟩.
 
-Single-qubit gates (2×2 unitaries)
+Single-qubit gates (2-2 unitaries)
 ------------------------------------
     I   : identity
     X   : Pauli-X (NOT, bit flip)         [[0,1],[1,0]]
@@ -19,7 +19,7 @@ Single-qubit gates (2×2 unitaries)
     Rz  : rotation about z-axis  e^(-iθσz/2)
     U3  : general single-qubit unitary (3 Euler angles)
 
-Two-qubit gates (4×4 unitaries)
+Two-qubit gates (4-4 unitaries)
 ---------------------------------
     CNOT(ctrl, tgt) : controlled-NOT, flips target iff control=|1⟩
     CZ              : controlled-Z,   applies Z to target iff control=|1⟩
@@ -73,17 +73,17 @@ GATE_T_DAG = GATE_T.conj().T
 
 # Rotation gates
 def Rx(theta: float) -> Gate1Q:
-    """Rotation by θ around x-axis: e^(-iθσx/2)."""
+    """Rotation by θ around x-axis: e^(−iθσx/2)."""
     c, s = np.cos(theta / 2), np.sin(theta / 2)
     return np.array([[c, -1j*s], [-1j*s, c]], dtype=complex)
 
 def Ry(theta: float) -> Gate1Q:
-    """Rotation by θ around y-axis: e^(-iθσy/2)."""
+    """Rotation by θ around y-axis: e^(−iθσy/2)."""
     c, s = np.cos(theta / 2), np.sin(theta / 2)
     return np.array([[c, -s], [s, c]], dtype=complex)
 
 def Rz(theta: float) -> Gate1Q:
-    """Rotation by θ around z-axis: e^(-iθσz/2)."""
+    """Rotation by θ around z-axis: e^(−iθσz/2)."""
     return np.array([[np.exp(-1j*theta/2), 0],
                      [0, np.exp(1j*theta/2)]], dtype=complex)
 
@@ -210,7 +210,7 @@ def iSWAP_gate() -> Gate2Q:
 
 
 def XX_gate(theta: float) -> Gate2Q:
-    """Ising XX coupling: e^(-iθ·σx⊗σx / 2).
+    """Ising XX coupling: e^(−iθ·σx⊗σx / 2).
 
     Used in trapped-ion quantum computers (Mølmer-Sørensen gate).
     At θ=π/2 creates maximal entanglement from |00⟩.
@@ -386,7 +386,7 @@ def run_circuit(
 
     Each operation is a tuple:
         ('1q',  gate, qubit)               single-qubit gate on qubit 0 or 1
-        ('2q',  gate)                       two-qubit gate (4×4 unitary)
+        ('2q',  gate)                       two-qubit gate (4-4 unitary)
         ('2q',  gate_name)                  named gate from registry
         ('cnot', control, target)           CNOT shorthand
         ('rx',  theta, qubit)              Rx rotation
@@ -474,7 +474,7 @@ def evolve_unitary(
     H: np.ndarray,
     t: float,
 ) -> np.ndarray:
-    """Unitary evolution: ρ(t) = e^(-iHt) ρ e^(+iHt).
+    """Unitary evolution: ρ(t) = e^(−iHt) ρ e^(+iHt).
 
     Uses matrix exponentiation via eigendecomposition (exact for
     time-independent H, ℏ=1 units).
@@ -545,3 +545,32 @@ def gate_fidelity(U_ideal: np.ndarray, U_actual: np.ndarray) -> float:
     N = U_ideal.shape[0]
     overlap = np.trace(U_ideal.conj().T @ U_actual)
     return float(abs(overlap)**2 / N**2)
+
+
+def xx_sweep(n_angles: int = 120):
+    """Concurrence of XX(θ)|00⟩ as θ sweeps from 0 to π.
+
+    The Mølmer-Sørensen XX gate applied to |00⟩ produces a state whose
+    entanglement traces a full arch: separable at θ=0, maximally entangled
+    at θ=π/2, back to separable at θ=π.
+
+    Parameters
+    ----------
+    n_angles : number of θ samples
+
+    Returns
+    -------
+    angles       : np.ndarray  shape (n_angles,)  values in [0, π]
+    concurrences : np.ndarray  shape (n_angles,)  concurrence C ∈ [0, 1]
+    """
+    import numpy as np
+    from src.two_qubit.states import KET_00, ket_to_dm
+    from src.two_qubit.entanglement import concurrence as _concurrence
+
+    angles = np.linspace(0, np.pi, n_angles)
+    concs  = np.empty(n_angles)
+    for i, theta in enumerate(angles):
+        psi      = XX_gate(theta) @ KET_00.astype(complex)
+        rho      = ket_to_dm(psi)
+        concs[i] = _concurrence(rho)
+    return angles, concs

@@ -8,7 +8,7 @@ Prototype 1  -  Pure transverse coherence decay:
 Prototype 2  -  Bloch vector + Larmor precession (analytic):
     Mx(t) = M0 * cos(ω₀ t) * [exp(-t/T2)]
     My(t) = M0 * sin(ω₀ t) * [exp(-t/T2)]
-    Mz(t) = Mz0  (constant - no T1 in P2)
+    Mz(t) = Mz0  (constant — no T1 in P2)
 
 Prototype 3  -  Full Bloch equations (numerical ODE, T1 + T2):
     dMx/dt = +ω₀·My  -  Mx/T2
@@ -432,7 +432,7 @@ def bloch_rhs(
 
     Parameters
     ----------
-    t     : float        current time (unused - autonomous ODE, required by solve_ivp)
+    t     : float        current time (unused — autonomous ODE, required by solve_ivp)
     M     : (3,) array   current magnetisation [Mx, My, Mz]
     gamma : float        gyromagnetic ratio (rad / [time·field])
     B     : (3,) array   magnetic field vector [Bx, By, Bz]
@@ -447,7 +447,7 @@ def bloch_rhs(
     Mx, My, Mz = M
     Bx, By, Bz = B
 
-    # M x B  (full 3-D cross product - works for any field direction)
+    # M x B  (full 3-D cross product — works for any field direction)
     cross_x = My * Bz - Mz * By
     cross_y = Mz * Bx - Mx * Bz
     cross_z = Mx * By - My * Bx
@@ -483,7 +483,7 @@ def simulate_bloch(
     M_init : (3,) array-like
         Initial magnetisation [Mx0, My0, Mz0].
         Typical: [1, 0, 0]  (spin tipped to x after pi/2 pulse)
-                 [0, 0, 1]  (equilibrium - should stay there)
+                 [0, 0, 1]  (equilibrium — should stay there)
     gamma  : float
         Gyromagnetic ratio.  For normalised units (omega0 = gamma * B0)
         use gamma=1 and set B0 = omega0 directly.
@@ -524,7 +524,7 @@ def simulate_bloch(
     if T2 <= 0:
         raise ValueError(f"T2 must be positive, got {T2}")
     if T2 > T1:
-        raise ValueError(f"T2 ({T2}) cannot exceed T1 ({T1}) - unphysical")
+        raise ValueError(f"T2 ({T2}) cannot exceed T1 ({T1}) — unphysical")
     if t_max <= 0:
         raise ValueError(f"t_max must be positive, got {t_max}")
     if dt <= 0:
@@ -576,8 +576,8 @@ def plot_bloch_relaxation(
 
     Panels
     ------
-    Left   : Mx(t) and My(t) - transverse components with T2 envelope
-    Centre : Mz(t) - longitudinal recovery toward M0 with T1 annotation
+    Left   : Mx(t) and My(t) — transverse components with T2 envelope
+    Centre : Mz(t) — longitudinal recovery toward M0 with T1 annotation
     Right  : |M_perp|(t) vs exp(-t/T2) overlay
 
     Chosen layout emphasises the *two timescales* (T1 vs T2) side by side.
@@ -742,3 +742,132 @@ def plot_T1_T2_comparison(
         fig.savefig(save_path, dpi=150, bbox_inches="tight")
 
     return fig
+
+# ============================================================================
+# Analytic single-spin and ensemble solutions  (no ODE)
+# ============================================================================
+
+def analytic_single_spin(
+    omega0: float, T1: float, T2: float,
+    t_max: float, n: int = 1200
+):
+    """Analytic Bloch solution for a single spin after a π/2 pulse.
+
+    Returns
+    -------
+    t, Mx, My, Mz : np.ndarray
+    """
+    t  = np.linspace(0, t_max, n)
+    Mx =  np.cos(omega0 * t) * np.exp(-t / T2)
+    My = -np.sin(omega0 * t) * np.exp(-t / T2)
+    Mz =  1.0 - np.exp(-t / T1)
+    return t, Mx, My, Mz
+
+
+def analytic_ensemble_fid(
+    omega0: float, sigma: float, T1: float, T2: float,
+    t_max: float, n: int = 1200
+):
+    """Ensemble FID with Gaussian inhomogeneous broadening σ.
+
+    The transverse envelope decays as exp(-t/T2) * exp(-σ²t²/2).
+
+    Returns
+    -------
+    t, Mx, My, Mz : np.ndarray
+    """
+    t        = np.linspace(0, t_max, n)
+    envelope = np.exp(-t / T2) * np.exp(-0.5 * sigma**2 * t**2)
+    Mx       =  np.cos(omega0 * t) * envelope
+    My       = -np.sin(omega0 * t) * envelope
+    Mz       =  1.0 - np.exp(-t / T1)
+    return t, Mx, My, Mz
+
+
+def analytic_hahn_echo(
+    omega0: float, T1: float, T2: float,
+    tau: float, n: int = 1200
+):
+    """Analytic Hahn echo: free precession → π pulse at τ → echo at 2τ.
+
+    Before τ the magnetisation dephases; the π pulse refocuses it and
+    the echo amplitude is exp(-2τ/T₂), independent of inhomogeneous
+    broadening.
+
+    Returns
+    -------
+    t, Mx, My, Mz : np.ndarray  (concatenated over [0, 2τ])
+    """
+    half = n // 2
+    t1   = np.linspace(0,   tau,   half,     endpoint=False)
+    t2   = np.linspace(tau, 2*tau, half + 1, endpoint=True)
+
+    Mx1 =  np.cos(omega0 * t1) * np.exp(-t1 / T2)
+    My1 = -np.sin(omega0 * t1) * np.exp(-t1 / T2)
+    Mz1 =  1.0 - np.exp(-t1 / T1)
+
+    Mx2 =  np.cos(omega0 * (2*tau - t2)) * np.exp(-t2 / T2)
+    My2 =  np.sin(omega0 * (2*tau - t2)) * np.exp(-t2 / T2)
+    Mz2 =  1.0 - np.exp(-t2 / T1)
+
+    return (
+        np.concatenate([t1, t2]),
+        np.concatenate([Mx1, Mx2]),
+        np.concatenate([My1, My2]),
+        np.concatenate([Mz1, Mz2]),
+    )
+
+
+def analytic_echo_sweep(
+    T2: float, tau_min: float, tau_max: float, n: int = 500
+):
+    """Echo amplitude as a function of echo time 2τ.
+
+    A(2τ) = exp(-2τ / T₂)
+
+    Returns
+    -------
+    two_tau : np.ndarray   echo times
+    amps    : np.ndarray   echo amplitudes
+    """
+    tau     = np.linspace(tau_min, tau_max, n)
+    amps    = np.exp(-2.0 * tau / T2)
+    return 2.0 * tau, amps
+
+
+def fit_echo_sweep_T2(two_tau: np.ndarray, amps: np.ndarray):
+    """Fit T₂ from a swept echo-amplitude dataset via log-linear regression.
+
+    Parameters
+    ----------
+    two_tau : echo times  (array)
+    amps    : echo amplitudes  (array, same length)
+
+    Returns
+    -------
+    T2_fit     : float   fitted T₂
+    fit_curve  : np.ndarray  fitted amplitude values at the input two_tau points
+    """
+    log_A  = np.log(np.clip(amps, 1e-10, None))
+    coeffs = np.polyfit(two_tau, log_A, 1)
+    T2_fit = float(-1.0 / coeffs[0])
+    fit_curve = np.exp(coeffs[0] * two_tau + coeffs[1])
+    return T2_fit, fit_curve
+
+
+def analytic_fid_vs_echo(
+    sigma: float, T2: float, tau: float,
+    t_max: float, n: int = 1200
+):
+    """FID envelope vs pure T₂ decay, for visual T₂* / T₂ comparison.
+
+    Returns
+    -------
+    t        : np.ndarray
+    fid_env  : FID envelope  exp(-t/T₂) * exp(-σ²t²/2)
+    t2_only  : pure T₂ decay exp(-t/T₂)
+    """
+    t       = np.linspace(0, t_max, n)
+    fid_env = np.exp(-t / T2) * np.exp(-0.5 * sigma**2 * t**2)
+    t2_only = np.exp(-t / T2)
+    return t, fid_env, t2_only

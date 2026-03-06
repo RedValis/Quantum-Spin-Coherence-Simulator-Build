@@ -25,13 +25,19 @@ from plotly.subplots import make_subplots
 import pandas as pd
 
 from src.sequences import cpmg_sequence
+from src.core import (
+    analytic_single_spin, analytic_ensemble_fid, analytic_hahn_echo,
+    analytic_echo_sweep, analytic_fid_vs_echo, fit_echo_sweep_T2,
+)
 from src.rabi import (
     run_rabi, analytic_chevron,
     analytic_rabi_population, pi_pulse_time, max_population_inversion,
+    resonance_scan,
 )
 from src.ramsey import (
     sweep_ramsey, analytic_ramsey_population,
     fit_ramsey_fringes, ramsey_sensitivity,
+    ramsey_detuning_scan,
 )
 from src.density_matrix import (
     simulate_dm, ground_state_dm, superposition_dm, mixed_state_dm,
@@ -53,6 +59,7 @@ from src.two_qubit.gates import (
     CNOT, CZ, SWAP_gate, iSWAP_gate, XX_gate, prepare_bell_state,
     run_circuit, evolve_unitary, two_qubit_hamiltonian,
     GATE_H, GATE_X, GATE_Y, GATE_Z,
+    xx_sweep,
 )
 from src.two_qubit.entanglement import (
     concurrence, entanglement_entropy, negativity, logarithmic_negativity,
@@ -133,56 +140,6 @@ BASIS_LABELS_2Q = ["|00⟩", "|01⟩", "|10⟩", "|11⟩"]
 
 
 # ============================================================================
-# Analytic solutions — no ODE, run in microseconds
-# ============================================================================
-
-def _analytic_single_spin(omega0, T1, T2, t_max, n=1200):
-    t  = np.linspace(0, t_max, n)
-    Mx =  np.cos(omega0 * t) * np.exp(-t / T2)
-    My = -np.sin(omega0 * t) * np.exp(-t / T2)
-    Mz =  1 - np.exp(-t / T1)
-    return t, Mx, My, Mz
-
-
-def _analytic_ensemble_fid(omega0, sigma, T1, T2, t_max, n=1200):
-    t        = np.linspace(0, t_max, n)
-    envelope = np.exp(-t / T2) * np.exp(-0.5 * sigma**2 * t**2)
-    Mx       =  np.cos(omega0 * t) * envelope
-    My       = -np.sin(omega0 * t) * envelope
-    Mz       =  1 - np.exp(-t / T1)
-    return t, Mx, My, Mz
-
-
-def _analytic_hahn_echo(omega0, T1, T2, tau, n=1200):
-    half = n // 2
-    t1   = np.linspace(0,   tau,   half,     endpoint=False)
-    t2   = np.linspace(tau, 2*tau, half + 1, endpoint=True)
-    Mx1  =  np.cos(omega0 * t1) * np.exp(-t1 / T2)
-    My1  = -np.sin(omega0 * t1) * np.exp(-t1 / T2)
-    Mz1  =  1 - np.exp(-t1 / T1)
-    Mx2  =  np.cos(omega0 * (2*tau - t2)) * np.exp(-t2 / T2)
-    My2  =  np.sin(omega0 * (2*tau - t2)) * np.exp(-t2 / T2)
-    Mz2  =  1 - np.exp(-t2 / T1)
-    return (np.concatenate([t1, t2]),
-            np.concatenate([Mx1, Mx2]),
-            np.concatenate([My1, My2]),
-            np.concatenate([Mz1, Mz2]))
-
-
-def _analytic_echo_sweep(T2, tau_min, tau_max, n=500):
-    tau  = np.linspace(tau_min, tau_max, n)
-    amps = np.exp(-2 * tau / T2)
-    return 2 * tau, amps
-
-
-def _analytic_fid_vs_echo(sigma, T2, tau, t_max, n=1200):
-    t       = np.linspace(0, t_max, n)
-    fid_env = np.exp(-t / T2) * np.exp(-0.5 * sigma**2 * t**2)
-    t2_only = np.exp(-t / T2)
-    return t, fid_env, t2_only
-
-
-# ============================================================================
 # Cached ODE wrappers
 # ============================================================================
 
@@ -257,16 +214,6 @@ def _run_correlated_comparison(T2, T_ZZ, t_max, n):
     return correlated_vs_local_dephasing(T2=T2, T_ZZ=T_ZZ, t_max=t_max, n=n)
 
 
-@st.cache_data(show_spinner=False)
-def _run_xx_sweep(n_angles):
-    """Concurrence of XX(θ)|00⟩ as θ sweeps 0→π."""
-    angles = np.linspace(0, np.pi, n_angles)
-    concs  = np.empty(n_angles)
-    for i, theta in enumerate(angles):
-        psi  = XX_gate(theta) @ KET_00.astype(complex)
-        rho  = ket_to_dm(psi)
-        concs[i] = concurrence(rho)
-    return angles, concs
 
 
 # ============================================================================
@@ -336,16 +283,14 @@ def _fig_echo_detail(t, Mx, My, tau, T2):
     return fig
 
 
-def _fig_echo_sweep(two_tau, amps, T2):
-    log_A  = np.log(np.clip(amps, 1e-10, None))
-    coeffs = np.polyfit(two_tau, log_A, 1)
-    T2_fit = -1.0 / coeffs[0]
+def _fig_echo_sweep(two_tau, amps, T2, T2_fit, fit_curve):
+    """Render echo sweep. T2_fit/fit_curve from fit_echo_sweep_T2()."""
     tt = np.linspace(two_tau[0], two_tau[-1], 600)
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=tt, y=np.exp(-tt / T2),
                              name=f"exp(−2τ/T₂)  T₂={T2} µs",
                              line=dict(color=C_BLUE, dash="dash", width=1.8)))
-    fig.add_trace(go.Scatter(x=tt, y=np.exp(coeffs[0]*tt + coeffs[1]),
+    fig.add_trace(go.Scatter(x=two_tau, y=fit_curve,
                              name=f"Fitted  T₂ = {T2_fit:.2f} µs",
                              line=dict(color=C_GREEN, dash="dot", width=1.8)))
     fig.add_trace(go.Scatter(x=two_tau, y=amps, name="Echo amplitudes",
@@ -357,7 +302,7 @@ def _fig_echo_sweep(two_tau, amps, T2):
     fig.update_layout(**_base_layout("Echo Amplitude vs 2τ"))
     fig.update_xaxes(title_text="Echo time 2τ (µs)")
     fig.update_yaxes(title_text="Echo amplitude", range=[-0.02, 1.1])
-    return fig, T2_fit
+    return fig
 
 
 def _fig_fid_vs_echo(t, fid_env, t2_only, sigma, T2, tau):
@@ -610,10 +555,8 @@ def _fig_rabi_chevron(omega_rabi, delta_max, t_max, current_delta=None):
     return fig
 
 
-def _fig_rabi_resonance_scan(omega_rabi, delta_max, t_pi):
-    deltas    = np.linspace(-delta_max, delta_max, 500)
-    omega_eff = np.sqrt(omega_rabi**2 + deltas**2)
-    P         = (omega_rabi / omega_eff)**2 * np.sin(omega_eff * t_pi / 2)**2
+def _fig_rabi_resonance_scan(deltas, P, omega_rabi, t_pi):
+    """Render resonance scan. deltas/P from resonance_scan()."""
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=deltas, y=P,
                              name=f"P↑ at t_π = {t_pi:.3f} µs",
@@ -658,9 +601,8 @@ def _fig_ramsey_fringes(T_free, P_up, params, errors, P_fit, delta, T2, T2_star_
     return fig
 
 
-def _fig_ramsey_detuning_scan(T2, T_free_fixed, delta_range):
-    deltas = np.linspace(-delta_range, delta_range, 500)
-    P      = 0.5 + 0.5 * np.cos(deltas * T_free_fixed) * np.exp(-T_free_fixed / T2)
+def _fig_ramsey_detuning_scan(deltas, P, T_free_fixed):
+    """Render Ramsey spectroscopy scan. deltas/P from ramsey_detuning_scan()."""
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=deltas / (2*np.pi), y=P,
                              name=f"T = {T_free_fixed:.1f} µs",
@@ -1305,7 +1247,7 @@ with tab_sim:
             "XX(θ)|00⟩ starts separable (θ=0) and reaches maximum entanglement "
             "at θ=π/2 (Mølmer-Sørensen gate used in trapped-ion hardware)."
         )
-        angles, concs = _run_xx_sweep(n_xx_angles)
+        angles, concs = xx_sweep(n_xx_angles)
         st.plotly_chart(_fig_xx_sweep(angles, concs), width='stretch')
 
         st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
@@ -1563,8 +1505,9 @@ with tab_sim:
                 _fig_rabi_components(r["t"], r["Mx"], r["My"], r["Mz"]),
                 width='stretch')
             if show_res_scan:
+                r_deltas, r_P = resonance_scan(r["omega_rabi"], delta_max_chev, t_pi)
                 st.plotly_chart(
-                    _fig_rabi_resonance_scan(r["omega_rabi"], delta_max_chev, t_pi),
+                    _fig_rabi_resonance_scan(r_deltas, r_P, r["omega_rabi"], t_pi),
                     width='stretch')
             if show_sphere:
                 st.plotly_chart(
@@ -1624,8 +1567,9 @@ with tab_sim:
                 width='stretch')
             if show_det_scan:
                 T_fixed = float(T_free_max / 4)
+                det_deltas, det_P = ramsey_detuning_scan(T2, T_fixed, delta_range=5.0)
                 st.plotly_chart(
-                    _fig_ramsey_detuning_scan(T2, T_fixed, delta_range=5.0),
+                    _fig_ramsey_detuning_scan(det_deltas, det_P, T_fixed),
                     width='stretch')
             if r["fit_params"]:
                 st.markdown("**Fit parameters**")
@@ -1723,7 +1667,7 @@ with tab_sim:
         Mx = My = Mz = None
 
         if experiment == "Single Spin (Bloch)":
-            t, Mx, My, Mz = _analytic_single_spin(omega0, T1, T2, t_max)
+            t, Mx, My, Mz = analytic_single_spin(omega0, T1, T2, t_max)
             M_perp = np.sqrt(Mx**2 + My**2)
             idx    = np.argmin(np.abs(t - T2))
             c1, c2, c3, c4 = st.columns(4)
@@ -1738,7 +1682,7 @@ with tab_sim:
                 width='stretch')
 
         elif experiment == "Ensemble FID":
-            t, Mx, My, Mz = _analytic_ensemble_fid(omega0, sigma, T1, T2, t_max)
+            t, Mx, My, Mz = analytic_ensemble_fid(omega0, sigma, T1, T2, t_max)
             M_perp = np.sqrt(Mx**2 + My**2)
             T2star = 1.0 / (1.0/T2 + sigma) if sigma > 0 else T2
             idx    = np.argmin(np.abs(t - T2))
@@ -1751,7 +1695,7 @@ with tab_sim:
                 _fig_fid_ensemble(t, Mx, My, sigma, T2), width='stretch')
 
         elif experiment == "Hahn Echo":
-            t, Mx, My, Mz = _analytic_hahn_echo(omega0, T1, T2, tau)
+            t, Mx, My, Mz = analytic_hahn_echo(omega0, T1, T2, tau)
             M_perp   = np.sqrt(Mx**2 + My**2)
             echo_amp = float(np.interp(2*tau, t, M_perp))
             expected = float(np.exp(-2*tau / T2))
@@ -1769,19 +1713,18 @@ with tab_sim:
                 width='stretch')
 
         elif experiment == "Echo Sweep":
-            two_tau, amps = _analytic_echo_sweep(T2, tau_min, tau_max, n_tau)
-            log_A  = np.log(np.clip(amps, 1e-10, None))
-            T2_fit = -1.0 / np.polyfit(two_tau, log_A, 1)[0]
+            two_tau, amps = analytic_echo_sweep(T2, tau_min, tau_max, n_tau)
+            T2_fit, fit_curve = fit_echo_sweep_T2(two_tau, amps)
             c1, c2, c3 = st.columns(3)
             c1.metric("True T₂ (µs)",   f"{T2:.1f}")
             c2.metric("Fitted T₂ (µs)", f"{T2_fit:.2f}",
                       delta=f"Δ = {T2_fit-T2:.3f}")
             c3.metric("Sweep points",    str(n_tau))
-            fig_sw, _ = _fig_echo_sweep(two_tau, amps, T2)
+            fig_sw = _fig_echo_sweep(two_tau, amps, T2, T2_fit, fit_curve)
             st.plotly_chart(fig_sw, width='stretch')
 
         elif experiment == "FID vs Echo (T₂* comparison)":
-            t, fid_env, t2_only = _analytic_fid_vs_echo(sigma, T2, tau, t_max)
+            t, fid_env, t2_only = analytic_fid_vs_echo(sigma, T2, tau, t_max)
             echo_amp = float(np.exp(-2*tau / T2))
             fid_at   = float(np.exp(-2*tau/T2) * np.exp(-0.5*sigma**2*(2*tau)**2))
             T2star   = 1.0/(1.0/T2 + sigma) if sigma > 0 else T2
@@ -1790,7 +1733,7 @@ with tab_sim:
             c2.metric("T₂* estimate (µs)", f"{T2star:.2f}")
             c3.metric("FID |M⊥| at 2τ",    f"{fid_at:.4f}")
             c4.metric("Echo amp at 2τ",     f"{echo_amp:.4f}",
-                      delta=f"{echo_amp/max(fid_at,1e-9):.1f}× refocusing")
+                      delta=f"{echo_amp/max(fid_at,1e-9):.1f}- refocusing")
             st.plotly_chart(
                 _fig_fid_vs_echo(t, fid_env, t2_only, sigma, T2, tau),
                 width='stretch')

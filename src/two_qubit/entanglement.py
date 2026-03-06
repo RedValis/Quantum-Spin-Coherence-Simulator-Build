@@ -60,10 +60,10 @@ from .states import I2, I4, sx, sy, sz, tensor, ket_to_dm, KET_00, KET_11
 def partial_trace(rho: np.ndarray, keep: int) -> np.ndarray:
     """Partial trace over the *other* qubit, keeping qubit *keep*.
 
-    For a 4×4 two-qubit density matrix in the basis |00⟩,|01⟩,|10⟩,|11⟩:
+    For a 4-4 two-qubit density matrix in the basis |00⟩,|01⟩,|10⟩,|11⟩:
 
-        keep=0 → trace out qubit B → return ρ_A = Tr_B[ρ]  (2×2)
-        keep=1 → trace out qubit A → return ρ_B = Tr_A[ρ]  (2×2)
+        keep=0 → trace out qubit B → return ρ_A = Tr_B[ρ]  (2-2)
+        keep=1 → trace out qubit A → return ρ_B = Tr_A[ρ]  (2-2)
 
     The partial trace is computed by reshaping ρ into a (2,2,2,2) tensor
     ρ[a,b,a',b'] = ⟨a,b|ρ|a',b'⟩  and summing over the traced qubit index.
@@ -170,7 +170,7 @@ def schmidt_decomposition(
     where λ_k ≥ 0 are the Schmidt coefficients (sorted descending),
     Σ λ_k² = 1, and {|α_k⟩}, {|β_k⟩} are orthonormal bases on H_A, H_B.
 
-    The coefficients λ_k are the singular values of the (2×2) coefficient
+    The coefficients λ_k are the singular values of the (2-2) coefficient
     matrix C[i,j] = ψ[2i+j].
 
     Key properties:
@@ -335,7 +335,7 @@ def partial_transpose(rho: np.ndarray, qubit: int = 1) -> np.ndarray:
         (ρ^{T_B})[a,b,a',b'] = ρ[a,b',a',b]   (B indices swapped)
 
     The Peres-Horodecki (PPT) criterion states: if ρ^{T_B} has any
-    negative eigenvalue, then ρ is entangled.  For 2×2 systems the
+    negative eigenvalue, then ρ is entangled.  For 2-2 systems the
     converse also holds (PPT iff separable).
 
     Parameters

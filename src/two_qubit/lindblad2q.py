@@ -315,7 +315,7 @@ def simulate_2q(
     if rho0.shape != (4, 4):
         raise ValueError(f"rho0 must be (4,4), got {rho0.shape}")
 
-    # Pack/unpack 4×4 complex → 32 real numbers
+    # Pack/unpack 4-4 complex → 32 real numbers
     def _pack(rho):
         return np.concatenate([rho.real.ravel(), rho.imag.ravel()])
 
