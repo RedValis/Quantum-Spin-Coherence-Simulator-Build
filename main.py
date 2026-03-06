@@ -105,7 +105,7 @@ MODEL_LABELS = {
     "stretched_T2": "L(t) = exp(−(t/T₂)^β)",
 }
 
-EXPERIMENTS = [
+EXPERIMENTS_1Q = [
     "Single Spin (Bloch)",
     "Ensemble FID",
     "Hahn Echo",
@@ -115,8 +115,11 @@ EXPERIMENTS = [
     "Rabi Oscillation",
     "Ramsey Interference",
     "Density Matrix",
-    "Two-Qubit: Bell States & Gates",
-    "Two-Qubit: Noise & Entanglement",
+]
+
+EXPERIMENTS_2Q = [
+    "Bell States & Gates",
+    "Noise & Entanglement Decay",
 ]
 
 BELL_LABELS = {
@@ -1052,13 +1055,19 @@ with st.sidebar:
     st.markdown("## Spin Coherence Simulator")
     st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
 
-    experiment = st.selectbox("Experiment type", EXPERIMENTS)
+    mode = st.radio(
+        "Mode",
+        ["⛛️ Single Qubit", "🔗 Two Qubits"],
+        horizontal=True,
+    )
+    if mode == "⛛️ Single Qubit":
+        experiment = st.selectbox("Experiment", EXPERIMENTS_1Q)
+    else:
+        experiment = st.selectbox("Experiment", EXPERIMENTS_2Q)
 
     st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
 
-    is_two_qubit = experiment.startswith("Two-Qubit")
-
-    if not is_two_qubit:
+    if mode == "⛛️ Single Qubit":
         # ── Single-qubit parameters ───────────────────────────────────────────
         st.markdown("**Physical parameters**")
         gamma  = 1.0
@@ -1173,22 +1182,22 @@ with st.sidebar:
             format_func=lambda k: BELL_LABELS[k],
         )
 
-        if experiment == "Two-Qubit: Bell States & Gates":
+        if experiment == "Bell States & Gates":
             st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
             st.markdown("**XX gate sweep**")
             n_xx_angles = st.slider("Sweep resolution", 50, 300, 120, 10)
             show_bloch_pair  = st.checkbox("Show reduced Bloch spheres", value=True)
             show_hinton      = st.checkbox("Show Im(ρ) panel", value=True)
 
-        elif experiment == "Two-Qubit: Noise & Entanglement":
+        elif experiment == "Noise & Entanglement Decay":
             st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
             st.markdown("**Qubit A noise**")
             T1_A   = st.slider("T₁_A", 1.0, 100.0, 15.0, 1.0)
-            T2_A   = st.slider("T₂_A", 0.5, float(2*15), float(min(12.0, 2*15)), 0.5)
+            T2_A   = st.slider("T₂_A", 0.5, float(2*T1_A), float(min(12.0, 2*T1_A)), 0.5)
 
             st.markdown("**Qubit B noise**")
             T1_B   = st.slider("T₁_B", 1.0, 100.0, 15.0, 1.0)
-            T2_B   = st.slider("T₂_B", 0.5, float(2*15), float(min(12.0, 2*15)), 0.5)
+            T2_B   = st.slider("T₂_B", 0.5, float(2*T1_B), float(min(12.0, 2*T1_B)), 0.5)
 
             st.markdown("**Additional channels**")
             use_dep = st.checkbox("Local depolarizing", value=False)
@@ -1208,7 +1217,7 @@ with st.sidebar:
             n_2q     = st.select_slider("ODE steps", [100, 200, 400, 600], value=200)
 
         st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
-        if experiment == "Two-Qubit: Bell States & Gates":
+        if experiment == "Bell States & Gates":
             run_2q_btn = False   # Bell state tab is fully live (no ODE)
         else:
             run_2q_btn = st.button("Run Two-Qubit Simulation",
@@ -1241,7 +1250,7 @@ tab_sim, tab_fit = st.tabs(["Simulation", "Fitting"])
 with tab_sim:
 
     # ── Two-Qubit: Bell States & Gates ────────────────────────────────────────
-    if experiment == "Two-Qubit: Bell States & Gates":
+    if experiment == "Bell States & Gates":
 
         psi_bell, rho_bell = prepare_bell_state(bell_choice)
         summ = entanglement_summary(psi_bell)
@@ -1334,7 +1343,7 @@ with tab_sim:
         )
 
     # ── Two-Qubit: Noise & Entanglement ───────────────────────────────────────
-    elif experiment == "Two-Qubit: Noise & Entanglement":
+    elif experiment == "Noise & Entanglement Decay":
 
         # Clamp T2 ≤ 2·T1 (user sliders may be out of order)
         T2_A = min(T2_A, 2.0 * T1_A)
